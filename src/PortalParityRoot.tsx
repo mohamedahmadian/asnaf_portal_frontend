@@ -80,6 +80,7 @@ import {
   Ruler,
   Scale,
   Search,
+  Send,
   SlidersHorizontal,
   ShieldAlert,
   ShieldCheck,
@@ -170,6 +171,7 @@ import type {
   PortalStewardLookup,
   PortalStewardRow,
   PortalUser,
+  PortalSmsMessage,
   PortalViolation,
   PortalViolationSummary,
   PortalViolationAttachment,
@@ -828,7 +830,10 @@ const portalNav: PortalNavModule[] = [
     code: 'account',
     nameKey: 'nav.account',
     icon: CircleUserRound,
-    menus: [{ to: '/account', key: 'nav.account', icon: CircleUserRound }],
+    menus: [
+      { to: '/account', key: 'nav.account', icon: CircleUserRound },
+      { to: '/account/sms', key: 'nav.mySms', icon: MessageSquareText },
+    ],
   },
 ]
 
@@ -982,6 +987,9 @@ function menuActive(item: PortalNavMenu, pathname: string) {
       (/^\/cases\/[^/]+/.test(pathname) && !pathname.startsWith('/cases/formation'))
     )
   }
+  if (item.to === '/account') {
+    return pathname === '/account' || pathname.startsWith('/account/password')
+  }
   if (item.end) return pathname === item.to
   return pathname === item.to || pathname.startsWith(`${item.to}/`)
 }
@@ -1038,6 +1046,13 @@ function Breadcrumbs() {
   } else if (location.pathname.startsWith('/account')) {
     crumbs.push({ label: t('nav.account'), to: location.pathname === '/account' ? undefined : '/account' })
     if (location.pathname.endsWith('/password')) crumbs.push({ label: t('account.changePassword') })
+    if (location.pathname.startsWith('/account/sms')) {
+      crumbs.push({
+        label: t('nav.mySms'),
+        to: location.pathname === '/account/sms' ? undefined : '/account/sms',
+      })
+      if (/^\/account\/sms\/[^/]+$/.test(location.pathname)) crumbs.push({ label: t('accountSms.details') })
+    }
   }
   return (
     <nav aria-label={t('nav.breadcrumb')} className="min-w-0 flex-1">
@@ -8888,6 +8903,205 @@ function MyViolationDetailPage() {
   )
 }
 
+const SMS_STATUSES = ['SKIPPED', 'SENT', 'FAILED'] as const
+
+const smsStatusClass: Record<string, string> = {
+  SKIPPED: 'bg-amber-50 text-amber-800 ring-amber-200',
+  SENT: 'bg-teal-50 text-teal-800 ring-teal-200',
+  FAILED: 'bg-red-50 text-red-700 ring-red-200',
+}
+
+function SmsStatusBadge({ status }: { status: string }) {
+  const { t } = useTranslation()
+  return (
+    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${smsStatusClass[status] ?? 'bg-cream-50 text-ink-700 ring-line'}`}>
+      {t(`accountSms.statuses.${status}`)}
+    </span>
+  )
+}
+
+function MySmsPage() {
+  const { t } = useTranslation()
+  const navigate = useNavigate()
+  const [params, setParams] = useSearchParams()
+  const [term, setTerm] = useState(params.get('q') ?? '')
+  const sortBy = params.get('sortBy') ?? ''
+  const sortDir = params.get('sortDir') ?? ''
+  const status = params.get('status') ?? ''
+  const query = useQuery({
+    queryKey: ['my-sms-list', params.toString()],
+    queryFn: () =>
+      portalApi
+        .get<Paginated<PortalSmsMessage>>('/account/sms', { params: Object.fromEntries(params) })
+        .then(({ data }) => data),
+  })
+  const setPage = (nextPage: number) => {
+    const next = new URLSearchParams(params)
+    next.set('page', String(nextPage))
+    setParams(next)
+  }
+  const setFilter = (updates: Record<string, string | undefined>) => {
+    const next = new URLSearchParams(params)
+    for (const [key, value] of Object.entries(updates)) {
+      if (value) next.set(key, value)
+      else next.delete(key)
+    }
+    next.set('page', '1')
+    setParams(next)
+  }
+  const sort = (column: string) => {
+    const state = nextSort(column, sortBy, sortDir)
+    const next = new URLSearchParams(params)
+    if (state.sortBy) {
+      next.set('sortBy', state.sortBy)
+      next.set('sortDir', state.sortDir)
+    } else {
+      next.delete('sortBy')
+      next.delete('sortDir')
+    }
+    next.set('page', '1')
+    setParams(next)
+  }
+  const search = () => {
+    const input = document.querySelector<HTMLInputElement>('[data-list-search]')
+    const text = (input?.value ?? term).trim()
+    const next = new URLSearchParams(params)
+    if (text) next.set('q', text)
+    else next.delete('q')
+    next.set('page', '1')
+    setParams(next)
+  }
+  const rows = query.data?.items ?? []
+  const filtered = Boolean(params.get('q') || status)
+  return (
+    <div className={shellClassName}>
+      <PageHeader icon={MessageSquareText} title={t('accountSms.title')} subtitle={t('accountSms.subtitle')} />
+      <SearchBar
+        term={term}
+        onTermChange={setTerm}
+        onSubmit={search}
+        placeholder={t('accountSms.searchPlaceholder')}
+        filtersActive={Boolean(status)}
+        onClearFilters={() => setFilter({ status: undefined })}
+        extra={
+          <FormField icon={Send} label={t('accountSms.filterStatus')} htmlFor="my-sms-status">
+            <SearchSelect
+              id="my-sms-status"
+              value={status}
+              onChange={(next) => setFilter({ status: next || undefined })}
+              placeholder={t('accountSms.allStatuses')}
+              options={[
+                { value: '', label: t('accountSms.allStatuses') },
+                ...SMS_STATUSES.map((item) => ({ value: item, label: t(`accountSms.statuses.${item}`) })),
+              ]}
+            />
+          </FormField>
+        }
+      />
+      <CatalogTable
+        loading={query.isLoading}
+        error={query.error}
+        empty={filtered ? t('accountSms.noResults') : t('accountSms.empty')}
+        emptyIcon={MessageSquareText}
+        hasRows={rows.length > 0}
+      >
+        <thead className="bg-cream-50 text-ink-700">
+          <tr>
+            <SortableTh column="createdAt" label={t('accountSms.sentAt')} sortBy={sortBy} sortDir={sortDir} onSort={sort} />
+            <th className="px-4 py-3 text-start font-medium">{t('accountSms.body')}</th>
+            <SortableTh column="status" label={t('accountSms.status')} sortBy={sortBy} sortDir={sortDir} onSort={sort} />
+            <SortableTh column="source" label={t('accountSms.source')} sortBy={sortBy} sortDir={sortDir} onSort={sort} />
+            <th className={`${actionsColClassName} text-start font-medium`}>{t('common.actions')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((item) => {
+            const to = `/account/sms/${item.id}`
+            return (
+              <tr
+                key={item.id}
+                data-list-row
+                tabIndex={0}
+                className="cursor-pointer border-t border-line hover:bg-cream-50 focus:outline-none focus-visible:shadow-[inset_0_0_0_2px_#5ed4ce]"
+                onClick={() => navigate(to)}
+                onKeyDown={(event) => onCatalogRowKeyDown(event, to, navigate)}
+              >
+                <td className="px-4 py-3">
+                  <DateText value={item.createdAt} withTime />
+                </td>
+                <td className="max-w-md px-4 py-3">
+                  <p className="line-clamp-2 whitespace-pre-wrap text-ink-900">{item.body}</p>
+                </td>
+                <td className="px-4 py-3">
+                  <SmsStatusBadge status={item.status} />
+                </td>
+                <td className="px-4 py-3">{t(`accountSms.sources.${item.source}`)}</td>
+                <td className={actionsColClassName}>
+                  <ViewAction to={to} />
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </CatalogTable>
+      {query.data ? (
+        <CatalogPager page={query.data.page} pageSize={query.data.pageSize} total={query.data.total} onPageChange={setPage} />
+      ) : null}
+    </div>
+  )
+}
+
+function MySmsDetailPage() {
+  const { t } = useTranslation()
+  const { smsId = '' } = useParams()
+  const query = useQuery({
+    queryKey: ['my-sms', smsId],
+    enabled: Boolean(smsId),
+    queryFn: () => portalApi.get<PortalSmsMessage>(`/account/sms/${smsId}`).then(({ data }) => data),
+  })
+  const item = query.data
+  return (
+    <div className={shellClassName}>
+      <PageHeader
+        icon={MessageSquareText}
+        title={t('accountSms.details')}
+        subtitle={item ? <EntityNameSubtitle name={formatDate(item.createdAt)} icon={CalendarDays} /> : undefined}
+        backTo="/account/sms"
+      />
+      {query.isLoading ? <LoadingState /> : null}
+      {query.isError ? <ErrorState error={query.error} /> : null}
+      {item ? (
+        <FormCard icon={MessageSquareText} title={t('accountSms.details')}>
+          <div className="space-y-6 p-5 sm:p-6">
+            <div className="grid gap-2 sm:grid-cols-2 sm:gap-3">
+              <FormFactTile
+                icon={CalendarDays}
+                label={t('accountSms.sentAt')}
+                value={<DateText value={item.createdAt} withTime />}
+                tone="teal"
+              />
+              <FormFactTile icon={Phone} label={t('accountSms.phone')} copyValue={item.phone} tone="mint" />
+              <FormFactTile icon={Send} label={t('accountSms.status')} value={<SmsStatusBadge status={item.status} />} tone="teal" />
+              <FormFactTile
+                icon={MessageSquareText}
+                label={t('accountSms.source')}
+                value={t(`accountSms.sources.${item.source}`)}
+                tone="mint"
+              />
+              <FormFactTile
+                icon={FileText}
+                label={t('accountSms.body')}
+                value={<p className="whitespace-pre-wrap font-normal leading-7">{item.body}</p>}
+                className="sm:col-span-2"
+              />
+            </div>
+          </div>
+        </FormCard>
+      ) : null}
+    </div>
+  )
+}
+
 function NotFoundPage() {
   return <Navigate to="/dashboard" replace />
 }
@@ -8920,6 +9134,8 @@ export function PortalParityRoot() {
               <Route path="/violations/:violationId" element={<MyViolationDetailPage />} />
               <Route path="/account" element={<AccountPage />} />
               <Route path="/account/password" element={<PasswordPage />} />
+              <Route path="/account/sms" element={<MySmsPage />} />
+              <Route path="/account/sms/:smsId" element={<MySmsDetailPage />} />
               <Route path="/base-info" element={<Navigate to="/base-info/job-types" replace />} />
               <Route path="/base-info/job-types" element={<JobTypesCatalogPage />} />
               <Route path="/base-info/job-types/:id" element={<JobTypeCatalogDetailPage />} />

@@ -51,6 +51,7 @@
     "inspection": "بازرسی و شکایات",
     "myViolations": "تخلفات من",
     "account": "حساب کاربری",
+    "mySms": "پیامک‌های من",
     "baseInfo": "اطلاعات پایه",
     "jobTypes": "نوع خدمات",
     "jobGroups": "گروه شغلی",
@@ -653,6 +654,32 @@
     "genders": {
       "MALE": "مرد",
       "FEMALE": "زن"
+    }
+  },
+  "accountSms": {
+    "title": "پیامک‌های من",
+    "subtitle": "پیامک‌هایی که به شماره همراه شما ارسال شده است",
+    "details": "جزئیات پیامک",
+    "empty": "هنوز پیامکی برای شماره شما ارسال نشده است",
+    "noResults": "پیامکی با این مشخصات پیدا نشد",
+    "searchPlaceholder": "جستجو در متن پیامک",
+    "filterStatus": "وضعیت ارسال",
+    "allStatuses": "همه وضعیت‌ها",
+    "sentAt": "تاریخ",
+    "body": "متن پیامک",
+    "status": "وضعیت ارسال",
+    "source": "منبع ارسال",
+    "phone": "شماره دریافت‌کننده",
+    "statuses": {
+      "SKIPPED": "ارسال نشده",
+      "SENT": "ارسال شده",
+      "FAILED": "ناموفق"
+    },
+    "sources": {
+      "MANUAL": "ارسال دستی",
+      "PASSWORD": "رمز عبور",
+      "PAYMENT_LINK": "لینک پرداخت",
+      "STEWARDSHIP": "مباشرت"
     }
   },
   "finance": {

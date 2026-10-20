@@ -698,3 +698,18 @@ export type CatalogJobStats = {
   jobGroupCount: number
   byJobType: { id: string; title: string; count: number }[]
 }
+
+export const SMS_STATUSES = ['SKIPPED', 'SENT', 'FAILED'] as const
+export type PortalSmsStatus = (typeof SMS_STATUSES)[number]
+
+export const SMS_SOURCES = ['MANUAL', 'PASSWORD', 'PAYMENT_LINK', 'STEWARDSHIP'] as const
+export type PortalSmsSource = (typeof SMS_SOURCES)[number]
+
+export type PortalSmsMessage = {
+  id: string
+  phone: string
+  body: string
+  status: PortalSmsStatus
+  source: PortalSmsSource
+  createdAt: string
+}
