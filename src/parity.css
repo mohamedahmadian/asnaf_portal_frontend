@@ -1,5 +1,22 @@
 @import "tailwindcss";
 
+@source "../../frontend/src/pages/cases/ActivityLicenseSheet.tsx";
+@source "../../frontend/src/pages/cases/IssuedActivityLicense.tsx";
+@source "../../frontend/src/pages/cases/activity-license.ts";
+@source "../../frontend/src/pages/cases/activity-license-styles.ts";
+@source "../../frontend/src/pages/cases/AuctionWizard.tsx";
+@source "../../frontend/src/pages/cases/auction.ts";
+@source "../../frontend/src/components/ui/AmountInput.tsx";
+@source "../../frontend/src/components/ui/Form.tsx";
+@source "../../frontend/src/components/ui/FormLayout.tsx";
+@source "../../frontend/src/components/ui/DateText.tsx";
+@source "../../frontend/src/components/ui/PersianDateField.tsx";
+@source "../../frontend/src/components/ui/FileDropField.tsx";
+@source "./pages/CaseAuctionPages.tsx";
+@source "./pages/CaseRenewalPage.tsx";
+@source "./pages/CaseLocationChangePage.tsx";
+@source "../../frontend/src/pages/cases/CaseLocationStep.tsx";
+
 @theme {
   --font-sans: "Vazirmatn", ui-sans-serif, system-ui, sans-serif;
   --color-teal-50: #eefaf9;
@@ -211,10 +228,11 @@ th {
 [data-sonner-toaster].app-toaster [data-sonner-toast][data-styled="true"] [data-close-button] {
   position: static;
   order: 1;
-  width: 28px;
-  height: 28px;
+  width: 22px;
+  height: 22px;
   flex-shrink: 0;
   margin: 0;
+  padding: 0;
   transform: none;
   border: 1px solid var(--color-teal-400);
   border-radius: 999px;
@@ -222,6 +240,35 @@ th {
   color: var(--color-teal-700);
   box-shadow: 0 4px 12px rgba(46, 189, 182, 0.12);
   cursor: pointer;
+}
+
+[data-sonner-toaster].app-toaster [data-sonner-toast][data-styled="true"] [data-close-button] svg {
+  width: 11px;
+  height: 11px;
+}
+
+[data-sonner-toaster].app-toaster [data-sonner-toast][data-styled="true"] [data-button] {
+  height: 24px;
+  border-radius: 999px;
+  padding-inline: 8px;
+  background: var(--color-teal-500);
+  color: #fff;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+[data-confirm-toast] button {
+  gap: 0.35rem;
+  border-radius: 0.75rem;
+  padding: 0.28rem 0.65rem;
+  font-size: 0.75rem;
+  line-height: 1.2;
+}
+
+[data-confirm-toast] button svg {
+  width: 0.85rem;
+  height: 0.85rem;
 }
 
 [data-sonner-toaster].app-toaster [data-sonner-toast][data-styled="true"] [data-icon] {
@@ -315,6 +362,38 @@ th {
   animation: case-formation-continue-blink 1.05s ease-in-out infinite;
 }
 
+@keyframes case-continue-request-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.38;
+  }
+}
+
+.case-continue-request-blink {
+  animation: case-continue-request-blink 2.6s ease-in-out infinite;
+}
+
+@keyframes case-awaiting-issue-blink {
+  0%,
+  100% {
+    border-color: rgb(251, 191, 36);
+    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.38);
+    background-color: rgb(255, 251, 235);
+  }
+  50% {
+    border-color: rgb(253, 230, 138);
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0);
+    background-color: rgb(255, 255, 255);
+  }
+}
+
+.case-awaiting-issue-blink {
+  animation: case-awaiting-issue-blink 1.15s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-page-fade-in,
   .animate-loading-spin,
@@ -322,7 +401,9 @@ th {
   .case-step-check,
   .case-step-done-pulse,
   .case-step-num-pulse,
-  .case-formation-continue-blink {
+  .case-formation-continue-blink,
+  .case-continue-request-blink,
+  .case-awaiting-issue-blink {
     animation: none;
   }
 }

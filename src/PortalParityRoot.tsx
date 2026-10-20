@@ -3,12 +3,14 @@ import {
   ArrowRight,
   ArrowUp,
   ArrowUpDown,
+  Ban,
   BadgeCheck,
   Banknote,
   BookOpen,
   Briefcase,
   BriefcaseBusiness,
   Building2,
+  CalendarCheck,
   CalendarClock,
   CalendarDays,
   Camera,
@@ -23,18 +25,21 @@ import {
   CircleDashed,
   CircleUserRound,
   CirclePause,
+  CirclePlay,
   CircleX,
   Clock3,
+  Car,
   ContactRound,
+  Flag,
   CreditCard,
   ClipboardList,
   Eye,
+  EyeOff,
   FileBadge2,
   FilePlus,
   Files,
   Fingerprint,
   FileText,
-  Download,
   FilterX,
   FolderKanban,
   FolderOpen,
@@ -42,6 +47,7 @@ import {
   Gauge,
   Globe,
   GraduationCap,
+  HardHat,
   Hash,
   History,
   Home,
@@ -58,25 +64,33 @@ import {
   MapPin,
   MapPinned,
   Menu,
+  MessageCircle,
+  MessageSquareText,
+  Mic,
   PanelLeftClose,
   PanelLeftOpen,
   Percent,
   Paperclip,
   Play,
   Phone,
+  PhoneOff,
   Plus,
-  Printer,
   ReceiptText,
   RefreshCw,
   Ruler,
+  Scale,
   Search,
   SlidersHorizontal,
   ShieldAlert,
   ShieldCheck,
+  Share2,
   Signpost,
   Store,
+  Tag,
   Trash2,
+  Type,
   Users,
+  UserPlus,
   UserRound,
   Wallet,
   X,
@@ -111,8 +125,12 @@ import {
   useSearchParams,
 } from 'react-router-dom'
 import { Toaster, toast } from 'sonner'
+import { DateText } from '../../frontend/src/components/ui/DateText'
 import { PersianDateField } from '../../frontend/src/components/ui/PersianDateField'
-import { ActivityLicenseSheet } from '../../frontend/src/pages/cases/ActivityLicenseSheet'
+import { parseDigitString, toLatinDigits } from '../../frontend/src/lib/datetime'
+import { optimizeImageFile } from '../../frontend/src/lib/optimize-image'
+import { isValidIranianNationalId, normalizeNationalId } from '../../frontend/src/lib/national-id'
+import { IssuedActivityLicense } from '../../frontend/src/pages/cases/IssuedActivityLicense'
 import {
   PREMISE_ESTABLISHMENTS,
   PREMISE_GEO_POSITIONS,
@@ -120,30 +138,41 @@ import {
   PREMISE_PUBLIC_ACCESSES,
   PREVIOUS_OCCUPATIONS,
 } from '../../frontend/src/pages/cases/formation-types'
-import {
-  activityLicenseHtml,
-  buildLicenseView,
-  downloadActivityLicense,
-  licenseCopy,
-  printActivityLicense,
-  type ActivityLicense,
-} from '../../frontend/src/pages/cases/activity-license'
+import type { ActivityLicense } from '../../frontend/src/pages/cases/activity-license'
 import { clearPortalToken, getPortalToken, setPortalToken } from './lib/auth-token'
 import { HeaderToday } from './HeaderToday'
 import { getApiErrorMessage, portalApi } from './lib/api'
+import { PortalLetterButtons, PortalLettersToolbar } from './components/PortalLetters'
+import { PortalAuctionDetailPage, PortalAuctionNewPage } from './pages/CaseAuctionPages'
+import { PortalRenewalPage } from './pages/CaseRenewalPage'
+import { CaseStewardshipFormationPage } from './pages/CaseStewardshipFormationPage'
+import { PortalLocationChangePage } from './pages/CaseLocationChangePage'
 import type {
   CaseDetail,
   CaseListKind,
+  CaseSuspension,
+  CaseRequest,
   CaseRequestBadge,
   CaseSummary,
+  CatalogJob,
+  CatalogJobGroup,
+  CatalogJobStats,
+  CatalogJobType,
   IssuanceDocument,
   IssuanceState,
   Lookup,
+  Paginated,
   PortalDossier,
   PortalDossierDocument,
   PortalDossierPlace,
   PortalLicense,
+  PortalStewardshipCard,
+  PortalStewardLookup,
+  PortalStewardRow,
   PortalUser,
+  PortalViolation,
+  PortalViolationSummary,
+  PortalViolationAttachment,
 } from './types/portal'
 
 const cardClassName =
@@ -151,12 +180,23 @@ const cardClassName =
 const fieldClassName =
   'w-full rounded-2xl border border-line bg-cream-50 px-3 py-2.5 text-sm text-ink-900 placeholder:text-ink-400 disabled:cursor-not-allowed disabled:opacity-60'
 const shellClassName = 'mx-auto w-full min-w-0'
+const catalogShellClassName = 'mx-auto w-full min-w-0 lg:w-3/4'
+const actionsColClassName = 'w-px min-w-max whitespace-nowrap px-4 py-3'
 const formBodyClassName = 'space-y-4 p-5 sm:p-6'
+
+type RegisterPayload = {
+  firstName: string
+  lastName: string
+  nationalId: string
+  phone: string
+  password: string
+}
 
 type AuthValue = {
   user: PortalUser | null
   loading: boolean
   login: (identifier: string, password: string) => Promise<void>
+  register: (payload: RegisterPayload) => Promise<void>
   logout: () => void
 }
 
@@ -197,6 +237,14 @@ function AuthProvider({ children }: { children: ReactNode }) {
         const { data } = await portalApi.post<{ accessToken: string; user: PortalUser }>(
           '/auth/login',
           { identifier, password },
+        )
+        setPortalToken(data.accessToken)
+        setUser(data.user)
+      },
+      register: async (payload) => {
+        const { data } = await portalApi.post<{ accessToken: string; user: PortalUser }>(
+          '/auth/register',
+          payload,
         )
         setPortalToken(data.accessToken)
         setUser(data.user)
@@ -287,11 +335,13 @@ function FormField({
   icon: Icon,
   label,
   htmlFor,
+  error,
   children,
 }: {
   icon: LucideIcon
   label: string
   htmlFor?: string
+  error?: string
   children: ReactNode
 }) {
   return (
@@ -301,9 +351,60 @@ function FormField({
         {label}
       </label>
       {children}
+      {error ? <p className="text-xs text-red-600">{error}</p> : null}
     </div>
   )
 }
+
+function GuestAuthShell({ children }: { children: ReactNode }) {
+  const { t } = useTranslation()
+  return (
+    <div className="flex min-h-svh flex-col bg-cream-50">
+      <header className="border-b border-line/70 bg-white/90 px-4 py-3 backdrop-blur sm:px-8">
+        <div className="mx-auto flex max-w-5xl items-center justify-center">
+          <img src="/head3.png" alt={t('app.title')} className="h-16 w-auto max-w-full object-contain" />
+        </div>
+      </header>
+      <main className="flex flex-1 items-center justify-center px-4 py-8">
+        <div className="w-full max-w-md">{children}</div>
+      </main>
+    </div>
+  )
+}
+
+function AuthNotice({
+  icon: Icon,
+  tone = 'teal',
+  children,
+}: {
+  icon: LucideIcon
+  tone?: 'teal' | 'mint' | 'warn'
+  children: ReactNode
+}) {
+  const toneClass =
+    tone === 'mint'
+      ? 'border-mint-100 bg-gradient-to-b from-mint-50 to-white text-ink-800'
+      : tone === 'warn'
+        ? 'border-amber-100 bg-gradient-to-b from-amber-50 to-white text-ink-800'
+        : 'border-teal-100 bg-gradient-to-b from-teal-50 to-white text-ink-800'
+  const iconClass =
+    tone === 'mint'
+      ? 'bg-mint-500 text-white'
+      : tone === 'warn'
+        ? 'bg-amber-500 text-white'
+        : 'bg-teal-500 text-white'
+  return (
+    <div className={`flex items-start gap-3 rounded-2xl border px-4 py-4 text-sm leading-7 ${toneClass}`}>
+      <span className={`mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-2xl ${iconClass}`}>
+        <Icon className="size-5" aria-hidden />
+      </span>
+      <div className="min-w-0 pt-1">{children}</div>
+    </div>
+  )
+}
+
+const guestLinkClassName =
+  'block text-center text-sm leading-7 text-teal-700 transition hover:text-teal-800 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-300 rounded-xl'
 
 function HeaderDecor() {
   return (
@@ -598,7 +699,7 @@ function FormFactTile({
       <span className={`mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-xl ${icons[tone]}`}>
         <Icon className="size-4" aria-hidden />
       </span>
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <p className="text-[11px] font-medium text-ink-500">{label}</p>
         <div className={`mt-0.5 break-words text-sm font-semibold ${shown ? 'text-ink-900' : 'text-ink-400'}`}>
           {shown || '—'}
@@ -705,6 +806,22 @@ const portalNav: PortalNavModule[] = [
     menus: [
       { to: '/cases/formation', key: 'nav.formation', icon: FilePlus },
       { to: '/cases', key: 'nav.cases', icon: Files },
+    ],
+  },
+  {
+    code: 'inspection',
+    nameKey: 'nav.inspection',
+    icon: Scale,
+    menus: [{ to: '/violations', key: 'nav.myViolations', icon: Gavel }],
+  },
+  {
+    code: 'base-info',
+    nameKey: 'nav.baseInfo',
+    icon: Globe,
+    menus: [
+      { to: '/base-info/job-types', key: 'nav.jobTypes', icon: Briefcase },
+      { to: '/base-info/job-groups', key: 'nav.jobGroups', icon: FolderKanban },
+      { to: '/base-info/jobs', key: 'nav.jobs', icon: HardHat },
     ],
   },
   {
@@ -881,8 +998,43 @@ function Breadcrumbs() {
     if (location.pathname.endsWith('/finance')) crumbs.push({ label: t('finance.title') })
     if (location.pathname.endsWith('/dossier')) crumbs.push({ label: t('cases.dossierTitle') })
     if (location.pathname.endsWith('/license')) crumbs.push({ label: t('cases.licenseTitle') })
+    if (location.pathname.endsWith('/stewardship/card')) crumbs.push({ label: t('cases.stewardship.cardTitle') })
+    else if (/\/cases\/[^/]+\/stewardship$/.test(location.pathname)) crumbs.push({ label: t('cases.formationTitle') })
+    if (/\/cases\/[^/]+\/renewal/.test(location.pathname)) crumbs.push({ label: t('cases.renewCurrentLicense') })
+    if (/\/cases\/[^/]+\/location-change/.test(location.pathname)) crumbs.push({ label: t('cases.locationChange') })
+    if (location.pathname.includes('/auction')) {
+      const caseId = location.pathname.split('/')[2]
+      crumbs.push({ label: t('cases.details'), to: `/cases/${caseId}` }, { label: t('cases.auction.title') })
+    }
   } else if (location.pathname.startsWith('/issuance')) {
     crumbs.push({ label: t('nav.casesModule'), to: '/cases' }, { label: t('cases.formationTitle') })
+  } else if (location.pathname.startsWith('/base-info')) {
+    crumbs.push({ label: t('nav.baseInfo'), to: '/base-info/job-types' })
+    if (location.pathname.startsWith('/base-info/job-types')) {
+      crumbs.push({
+        label: t('nav.jobTypes'),
+        to: location.pathname === '/base-info/job-types' ? undefined : '/base-info/job-types',
+      })
+      if (/\/base-info\/job-types\/[^/]+/.test(location.pathname)) crumbs.push({ label: t('jobTypes.details') })
+    } else if (location.pathname.startsWith('/base-info/job-groups')) {
+      crumbs.push({
+        label: t('nav.jobGroups'),
+        to: location.pathname === '/base-info/job-groups' ? undefined : '/base-info/job-groups',
+      })
+      if (/\/base-info\/job-groups\/[^/]+/.test(location.pathname)) crumbs.push({ label: t('jobGroups.details') })
+    } else if (location.pathname.startsWith('/base-info/jobs')) {
+      crumbs.push({
+        label: t('nav.jobs'),
+        to: location.pathname === '/base-info/jobs' ? undefined : '/base-info/jobs',
+      })
+      if (/\/base-info\/jobs\/[^/]+/.test(location.pathname)) crumbs.push({ label: t('jobCatalog.details') })
+    }
+  } else if (location.pathname.startsWith('/violations')) {
+    crumbs.push(
+      { label: t('nav.inspection'), to: '/violations' },
+      { label: t('nav.myViolations'), to: location.pathname === '/violations' ? undefined : '/violations' },
+    )
+    if (/^\/violations\/[^/]+$/.test(location.pathname)) crumbs.push({ label: t('violations.details') })
   } else if (location.pathname.startsWith('/account')) {
     crumbs.push({ label: t('nav.account'), to: location.pathname === '/account' ? undefined : '/account' })
     if (location.pathname.endsWith('/password')) crumbs.push({ label: t('account.changePassword') })
@@ -1138,56 +1290,370 @@ function LoginPage() {
   const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')
   const mutation = useMutation({
-    mutationFn: () => login(identifier, password),
+    mutationFn: () => login(toLatinDigits(identifier), toLatinDigits(password)),
     onSuccess: () => navigate('/dashboard', { replace: true }),
     onError: (error) => toast.error(getApiErrorMessage(error, t('auth.loginFailed'))),
   })
   if (user) return <Navigate to="/dashboard" replace />
   return (
-    <div className="flex min-h-svh flex-col bg-cream-50">
-      <header className="border-b border-line/70 bg-white/90 px-4 py-3 backdrop-blur sm:px-8">
-        <div className="mx-auto flex max-w-5xl items-center justify-center">
-          <img src="/head3.png" alt={t('app.title')} className="h-16 w-auto max-w-full object-contain" />
-        </div>
-      </header>
-      <main className="flex flex-1 items-center justify-center px-4 py-8">
-        <div className="w-full max-w-md">
-          <FormCard icon={KeyRound} title={t('auth.login')}>
-            <AppForm
-              className={formBodyClassName}
-              autoFocusFirst
-              onSubmit={() => mutation.mutate()}
+    <GuestAuthShell>
+      <FormCard icon={KeyRound} title={t('auth.login')}>
+        <AppForm
+          className={formBodyClassName}
+          autoFocusFirst
+          onSubmit={() => mutation.mutate()}
+        >
+          <FormField icon={UserRound} label={t('auth.username')} htmlFor="identifier">
+            <input
+              id="identifier"
+              className={`${fieldClassName} digit-field`}
+              value={identifier}
+              onChange={(event) => setIdentifier(toLatinDigits(event.target.value))}
+              placeholder={t('auth.identifier')}
+              autoComplete="username"
+              required
+            />
+          </FormField>
+          <FormField icon={KeyRound} label={t('auth.password')} htmlFor="password">
+            <input
+              id="password"
+              type="password"
+              className={fieldClassName}
+              value={password}
+              onChange={(event) => setPassword(toLatinDigits(event.target.value))}
+              autoComplete="current-password"
+              required
+            />
+          </FormField>
+          <Button type="submit" className="w-full" disabled={mutation.isPending}>
+            <KeyRound className="size-4" />
+            {t('auth.submit')}
+          </Button>
+          <Link to="/forgot-password" className={guestLinkClassName}>
+            {t('auth.forgotPasswordHint')}
+          </Link>
+          <div className="flex justify-center pt-1">
+            <Link
+              to="/register"
+              className="inline-flex items-center gap-1.5 rounded-full bg-mint-500 bg-[linear-gradient(to_inline-end,var(--color-teal-500),var(--color-mint-500))] px-3.5 py-1.5 text-sm font-medium text-white shadow-[0_6px_14px_rgba(46,189,182,0.28)] ring-1 ring-white/30 transition hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-300"
             >
-              <FormField icon={UserRound} label={t('auth.identifier')} htmlFor="identifier">
-                <input
-                  id="identifier"
-                  className={`${fieldClassName} digit-field`}
-                  value={identifier}
-                  onChange={(event) => setIdentifier(event.target.value)}
-                  autoComplete="username"
-                  required
-                />
-              </FormField>
-              <FormField icon={KeyRound} label={t('auth.password')} htmlFor="password">
-                <input
-                  id="password"
-                  type="password"
-                  className={fieldClassName}
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  autoComplete="current-password"
-                  required
-                />
-              </FormField>
-              <Button type="submit" className="w-full" disabled={mutation.isPending}>
-                <KeyRound className="size-4" />
-                {t('auth.submit')}
+              <UserPlus className="size-4 shrink-0" aria-hidden />
+              {t('auth.registerHint')}
+            </Link>
+          </div>
+        </AppForm>
+      </FormCard>
+    </GuestAuthShell>
+  )
+}
+
+type ForgotStatus = 'sent' | 'no_phone' | 'no_email' | 'not_found'
+type ForgotChannel = 'sms' | 'email'
+type ForgotStep = 'identify' | 'channel'
+
+function ForgotPasswordPage() {
+  const { user } = useAuth()
+  const { t } = useTranslation()
+  const [identifier, setIdentifier] = useState('')
+  const [step, setStep] = useState<ForgotStep>('identify')
+  const [submitting, setSubmitting] = useState<ForgotChannel | null>(null)
+  const [status, setStatus] = useState<ForgotStatus | null>(null)
+
+  if (user) return <Navigate to="/dashboard" replace />
+
+  function onIdentify() {
+    const value = toLatinDigits(identifier.trim())
+    if (value.length < 3) {
+      toast.error(t('auth.required'))
+      return
+    }
+    setStatus(null)
+    setStep('channel')
+  }
+
+  async function recover(channel: ForgotChannel) {
+    const value = toLatinDigits(identifier.trim())
+    setSubmitting(channel)
+    setStatus(null)
+    try {
+      const { data } = await portalApi.post<{ status: ForgotStatus }>('/auth/forgot-password', {
+        identifier: value,
+        channel,
+      })
+      setStatus(data.status)
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, t('app.error')))
+    } finally {
+      setSubmitting(null)
+    }
+  }
+
+  const backToLogin = (
+    <Link to="/login" className={guestLinkClassName}>
+      {t('auth.backToLogin')}
+    </Link>
+  )
+
+  return (
+    <GuestAuthShell>
+      <FormCard
+        icon={KeyRound}
+        title={t('auth.forgotPassword')}
+        subtitle={
+          step === 'channel' ? t('auth.forgotPasswordChooseChannel') : t('auth.forgotPasswordSubtitle')
+        }
+      >
+        {status === 'sent' ? (
+          <div className={formBodyClassName}>
+            <AuthNotice icon={KeyRound} tone="teal">
+              {t('auth.forgotPasswordSent')}
+            </AuthNotice>
+            {backToLogin}
+          </div>
+        ) : step === 'identify' ? (
+          <AppForm className={formBodyClassName} autoFocusFirst onSubmit={onIdentify}>
+            <FormField icon={IdCard} label={t('auth.username')} htmlFor="identifier">
+              <input
+                id="identifier"
+                className={`${fieldClassName} digit-field`}
+                value={identifier}
+                onChange={(event) => {
+                  setIdentifier(toLatinDigits(event.target.value))
+                  setStatus(null)
+                }}
+                placeholder={t('auth.identifier')}
+                autoComplete="username"
+                required
+                minLength={3}
+              />
+            </FormField>
+            <Button type="submit" className="w-full">
+              <KeyRound className="size-4" aria-hidden />
+              {t('auth.forgotPasswordSubmit')}
+            </Button>
+            {backToLogin}
+          </AppForm>
+        ) : (
+          <div className={formBodyClassName}>
+            <div className="grid grid-cols-2 gap-3">
+              <Button
+                type="button"
+                className="w-full"
+                disabled={Boolean(submitting)}
+                onClick={() => void recover('sms')}
+              >
+                <MessageSquareText className="size-4" aria-hidden />
+                {t('auth.forgotPasswordViaSms')}
               </Button>
-            </AppForm>
-          </FormCard>
-        </div>
-      </main>
-    </div>
+              <Button
+                type="button"
+                className="w-full"
+                disabled={Boolean(submitting)}
+                onClick={() => void recover('email')}
+              >
+                <Mail className="size-4" aria-hidden />
+                {t('auth.forgotPasswordViaEmail')}
+              </Button>
+            </div>
+            {backToLogin}
+          </div>
+        )}
+        {status === 'no_phone' ? (
+          <div className="px-5 pb-5 sm:px-6 sm:pb-6">
+            <AuthNotice icon={PhoneOff} tone="mint">
+              {t('auth.forgotPasswordNoPhone')}
+            </AuthNotice>
+          </div>
+        ) : null}
+        {status === 'no_email' ? (
+          <div className="px-5 pb-5 sm:px-6 sm:pb-6">
+            <AuthNotice icon={Mail} tone="mint">
+              {t('auth.forgotPasswordNoEmail')}
+            </AuthNotice>
+          </div>
+        ) : null}
+        {status === 'not_found' ? (
+          <div className="px-5 pb-5 sm:px-6 sm:pb-6">
+            <AuthNotice icon={CircleAlert} tone="warn">
+              {t('auth.forgotPasswordNotFound')}
+            </AuthNotice>
+          </div>
+        ) : null}
+      </FormCard>
+    </GuestAuthShell>
+  )
+}
+
+function RegisterPage() {
+  const { user, register } = useAuth()
+  const { t } = useTranslation()
+  const navigate = useNavigate()
+  const [firstName, setFirstName] = useState('')
+  const [lastName, setLastName] = useState('')
+  const [nationalId, setNationalId] = useState('')
+  const [phone, setPhone] = useState('')
+  const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
+  const mutation = useMutation({
+    mutationFn: () =>
+      register({
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        nationalId: normalizeNationalId(nationalId),
+        phone: parseDigitString(phone).slice(0, 11),
+        password: toLatinDigits(password),
+      }),
+    onSuccess: () => {
+      toast.success(t('auth.registerSuccess'))
+      navigate('/dashboard', { replace: true })
+    },
+    onError: (error) => toast.error(getApiErrorMessage(error, t('app.error'))),
+  })
+
+  if (user) return <Navigate to="/dashboard" replace />
+
+  function submit() {
+    const nextErrors: Record<string, string> = {}
+    const id = normalizeNationalId(nationalId)
+    const phoneDigits = parseDigitString(phone)
+    if (!firstName.trim()) nextErrors.firstName = t('auth.required')
+    if (!lastName.trim()) nextErrors.lastName = t('auth.required')
+    if (!id) nextErrors.nationalId = t('auth.required')
+    else if (!isValidIranianNationalId(id)) nextErrors.nationalId = t('auth.nationalIdInvalid')
+    if (!phoneDigits) nextErrors.phone = t('auth.required')
+    else if (!/^09\d{9}$/.test(phoneDigits)) nextErrors.phone = t('auth.phoneInvalid')
+    if (password.length < 8) nextErrors.password = t('auth.passwordMin')
+    setFieldErrors(nextErrors)
+    if (Object.keys(nextErrors).length) return
+    mutation.mutate()
+  }
+
+  return (
+    <GuestAuthShell>
+      <FormCard icon={UserPlus} title={t('auth.register')} subtitle={t('auth.registerSubtitle')}>
+        <AppForm className={formBodyClassName} autoFocusFirst onSubmit={submit}>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <FormField icon={UserRound} label={t('auth.firstName')} htmlFor="firstName" error={fieldErrors.firstName}>
+              <input
+                id="firstName"
+                className={fieldClassName}
+                value={firstName}
+                required
+                autoComplete="given-name"
+                onChange={(event) => {
+                  setFirstName(event.target.value)
+                  setFieldErrors((current) => {
+                    const next = { ...current }
+                    delete next.firstName
+                    return next
+                  })
+                }}
+              />
+            </FormField>
+            <FormField icon={UserRound} label={t('auth.lastName')} htmlFor="lastName" error={fieldErrors.lastName}>
+              <input
+                id="lastName"
+                className={fieldClassName}
+                value={lastName}
+                required
+                autoComplete="family-name"
+                onChange={(event) => {
+                  setLastName(event.target.value)
+                  setFieldErrors((current) => {
+                    const next = { ...current }
+                    delete next.lastName
+                    return next
+                  })
+                }}
+              />
+            </FormField>
+          </div>
+          <FormField icon={IdCard} label={t('auth.nationalId')} htmlFor="nationalId" error={fieldErrors.nationalId}>
+            <input
+              id="nationalId"
+              className={`${fieldClassName} digit-field`}
+              value={nationalId}
+              required
+              inputMode="numeric"
+              autoComplete="off"
+              maxLength={10}
+              onChange={(event) => {
+                const next = parseDigitString(event.target.value).slice(0, 10)
+                setNationalId(next)
+                setFieldErrors((current) => {
+                  const nextErrors = { ...current }
+                  if (next.length === 10 && !isValidIranianNationalId(next)) {
+                    nextErrors.nationalId = t('auth.nationalIdInvalid')
+                  } else {
+                    delete nextErrors.nationalId
+                  }
+                  return nextErrors
+                })
+              }}
+            />
+          </FormField>
+          <FormField icon={Phone} label={t('auth.phone')} htmlFor="phone" error={fieldErrors.phone}>
+            <input
+              id="phone"
+              className={`${fieldClassName} digit-field`}
+              value={phone}
+              required
+              inputMode="numeric"
+              autoComplete="tel"
+              maxLength={11}
+              onChange={(event) => {
+                setPhone(parseDigitString(event.target.value).slice(0, 11))
+                setFieldErrors((current) => {
+                  const next = { ...current }
+                  delete next.phone
+                  return next
+                })
+              }}
+            />
+          </FormField>
+          <FormField icon={KeyRound} label={t('auth.password')} htmlFor="password" error={fieldErrors.password}>
+            <div className="flex items-center gap-2">
+              <input
+                id="password"
+                type={showPassword ? 'text' : 'password'}
+                className={`${fieldClassName} digit-field min-w-0 flex-1`}
+                value={password}
+                required
+                minLength={8}
+                autoComplete="new-password"
+                onChange={(event) => {
+                  setPassword(toLatinDigits(event.target.value))
+                  setFieldErrors((current) => {
+                    const next = { ...current }
+                    delete next.password
+                    return next
+                  })
+                }}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                icon
+                className="shrink-0"
+                aria-pressed={showPassword}
+                aria-label={t(showPassword ? 'auth.hidePassword' : 'auth.showPassword')}
+                onClick={() => setShowPassword((current) => !current)}
+              >
+                {showPassword ? <EyeOff className="size-4" aria-hidden /> : <Eye className="size-4" aria-hidden />}
+              </Button>
+            </div>
+          </FormField>
+          <Button type="submit" className="w-full" disabled={mutation.isPending}>
+            <UserPlus className="size-4" />
+            {t('auth.registerSubmit')}
+          </Button>
+          <Link to="/login" className={guestLinkClassName}>
+            {t('auth.backToLogin')}
+          </Link>
+        </AppForm>
+      </FormCard>
+    </GuestAuthShell>
   )
 }
 
@@ -1385,6 +1851,9 @@ function SearchBar({
 
 const FORMATION_STEPS = ['identity', 'activity', 'location', 'inquiries', 'places', 'managementReview', 'issuance'] as const
 const STEWARDSHIP_STEPS = ['identity', 'inquiries', 'places', 'managementReview', 'cardIssuance'] as const
+const RENEWAL_STEPS = ['terms', 'documents', 'inquiries', 'places', 'management', 'issue'] as const
+const LOCATION_STEPS = ['location', 'documents', 'inquiries', 'places', 'management', 'request'] as const
+const AUCTION_STEPS = ['request', 'management', 'issue'] as const
 const CASE_KIND_OPTIONS: CaseListKind[] = ['ISSUANCE', 'RENEWAL', 'LOCATION_CHANGE', 'AUCTION', 'STEWARD_REQUEST', 'STEWARD_CARD']
 const CASE_STATUS_OPTIONS: CaseSummary['status'][] = ['ACTIVE', 'SUSPENDED', 'EXPIRED', 'REVOKED']
 
@@ -1420,6 +1889,14 @@ function remainingLicenseDays(expiresAt: string | null) {
   const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())
   const days = Math.round((end - today) / 86_400_000)
   return days > 0 ? days : null
+}
+
+function displayedLicenseNumber(item: Pick<CaseSummary, 'kind' | 'licenseNumber'> & { hostLicenseNumber?: string | null }) {
+  return item.kind === 'STEWARDSHIP' ? item.hostLicenseNumber ?? null : item.licenseNumber
+}
+
+function displayedLicenseExpiresAt(item: Pick<CaseSummary, 'kind' | 'licenseExpiresAt'> & { hostLicenseExpiresAt?: string | null }) {
+  return item.kind === 'STEWARDSHIP' ? item.hostLicenseExpiresAt ?? null : item.licenseExpiresAt
 }
 
 function NameRequestCell({ item, caseKind }: { item: CaseSummary; caseKind: CaseListKind }) {
@@ -1690,6 +2167,7 @@ function CasesPage() {
                   const statusStyle = CASE_STATUS_STYLES[item.status]
                   const jobGroup = item.job?.group?.title || item.activityJob?.group?.title
                   const jobType = item.job?.jobType?.title || item.activityJob?.jobType?.title
+                  const licenseNumber = displayedLicenseNumber(item)
                   return (
                     <tr
                       key={item.id}
@@ -1723,8 +2201,11 @@ function CasesPage() {
                       <td className="px-4 py-3">{item.job?.title || item.activityJob?.title || '—'}</td>
                       <td className="px-4 py-3">{jobType ? <CasePill tone="mint">{jobType}</CasePill> : '—'}</td>
                       <td className="px-4 py-3">
-                        {item.licenseNumber ? (
-                          <LicenseNumberCell licenseNumber={item.licenseNumber} licenseExpiresAt={item.licenseExpiresAt} />
+                        {licenseNumber ? (
+                          <LicenseNumberCell
+                            licenseNumber={licenseNumber}
+                            licenseExpiresAt={displayedLicenseExpiresAt(item)}
+                          />
                         ) : (
                           '—'
                         )}
@@ -1779,7 +2260,10 @@ function confirmDangerToast({
 }) {
   toast.custom(
     (id) => (
-      <div className="w-max max-w-[calc(100vw-2rem)] overflow-hidden rounded-[18px] border border-line bg-white shadow-[0_14px_36px_rgba(44,42,38,0.12)]">
+      <div
+        data-confirm-toast=""
+        className="w-max max-w-[calc(100vw-2rem)] overflow-hidden rounded-[18px] border border-line bg-white shadow-[0_14px_36px_rgba(44,42,38,0.12)]"
+      >
         <div className="h-1 bg-[linear-gradient(to_inline-end,#fb7185,#e11d48)]" />
         <div className="p-4">
           <div className="flex items-start gap-3">
@@ -1788,11 +2272,7 @@ function confirmDangerToast({
             </div>
             <p className="pt-2 text-[15px] font-medium leading-7 text-ink-900">{title}</p>
           </div>
-          <div className="mt-4 flex justify-end gap-2">
-            <Button type="button" variant="ghost" onClick={() => toast.dismiss(id)}>
-              <X className="size-4" aria-hidden />
-              {cancelLabel}
-            </Button>
+          <div className="mt-4 flex w-full flex-row items-center justify-between gap-2" dir="ltr">
             <Button
               type="button"
               variant="danger"
@@ -1801,8 +2281,12 @@ function confirmDangerToast({
                 void onConfirm()
               }}
             >
-              <Trash2 className="size-4" aria-hidden />
+              <Trash2 className="size-3.5" aria-hidden />
               {confirmLabel}
+            </Button>
+            <Button type="button" variant="ghost" onClick={() => toast.dismiss(id)}>
+              <X className="size-3.5" aria-hidden />
+              {cancelLabel}
             </Button>
           </div>
         </div>
@@ -1820,18 +2304,41 @@ function CaseDetailPage() {
     queryFn: () => portalApi.get<CaseDetail>(`/cases/${caseId}`).then(({ data }) => data),
   })
   const item = query.data
+  const licenseNumber = item ? displayedLicenseNumber(item) : null
+  const steward = item?.kind === 'STEWARDSHIP'
   return (
     <div className={shellClassName}>
       <PageHeader
-        icon={FolderKanban}
-        title={item?.kind === 'STEWARDSHIP' ? t('cases.stewardCaseDetails') : t('cases.licenseCaseDetails')}
+        icon={steward ? IdCard : FolderKanban}
+        title={steward ? t('cases.stewardCaseDetails') : t('cases.licenseCaseDetails')}
         subtitle={
           item ? (
-            <span className="flex flex-wrap items-center gap-1.5">
-              <EntityBadge icon={Store} value={item.businessUnitTitle ?? t('cases.details')} />
-              {item.trackingCode ? <EntityBadge icon={Hash} value={localizeDigits(item.trackingCode)} /> : null}
-              {item.licenseNumber ? <EntityBadge icon={BadgeCheck} value={localizeDigits(item.licenseNumber)} /> : null}
-            </span>
+            steward ? (
+              <span className="flex flex-wrap items-center gap-1.5">
+                <span className="inline-flex max-w-full items-center gap-2 rounded-2xl bg-teal-50 px-3 py-1.5 text-sm font-medium text-teal-800">
+                  <UserRound className="size-4 shrink-0" aria-hidden />
+                  <span className="truncate">{item.ownerName || t('cases.details')}</span>
+                </span>
+                {item.ownerPhone ? (
+                  <span className="inline-flex max-w-full items-center gap-1.5 rounded-2xl bg-teal-50 px-3 py-1.5 text-sm font-medium text-teal-800">
+                    <Phone className="size-4 shrink-0" aria-hidden />
+                    <CopyableDigits value={item.ownerPhone} />
+                  </span>
+                ) : null}
+                {item.ownerNationalId ? (
+                  <span className="inline-flex max-w-full items-center gap-1.5 rounded-2xl bg-teal-50 px-3 py-1.5 text-sm font-medium text-teal-800">
+                    <IdCard className="size-4 shrink-0" aria-hidden />
+                    <CopyableDigits value={item.ownerNationalId} />
+                  </span>
+                ) : null}
+              </span>
+            ) : (
+              <span className="flex flex-wrap items-center gap-1.5">
+                <EntityBadge icon={Store} value={item.businessUnitTitle ?? t('cases.details')} />
+                {item.trackingCode ? <EntityBadge icon={Hash} value={localizeDigits(item.trackingCode)} /> : null}
+                {licenseNumber ? <EntityBadge icon={BadgeCheck} value={localizeDigits(licenseNumber)} /> : null}
+              </span>
+            )
           ) : undefined
         }
         backTo="/cases"
@@ -1863,7 +2370,132 @@ function CaseDetailContent({ item, caseId }: { item: CaseDetail; caseId: string 
   const { t } = useTranslation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const issued = Boolean(item.licenseNumber)
+  const steward = item.kind === 'STEWARDSHIP'
+  const issued = steward ? Boolean(item.cardNumber) : Boolean(item.licenseNumber)
+  const licenseNumber = displayedLicenseNumber(item)
+  const licenseIssuedAt = steward ? item.hostLicenseIssuedAt ?? null : item.licenseIssuedAt
+  const licenseExpiresAt = steward ? item.hostLicenseExpiresAt ?? null : item.licenseExpiresAt
+  const [violationsOpen, setViolationsOpen] = useState(false)
+  const [suspensionsOpen, setSuspensionsOpen] = useState(false)
+  const [stewardRevokeOpen, setStewardRevokeOpen] = useState(false)
+  const [stewardRequestOpen, setStewardRequestOpen] = useState(false)
+  const licenseIssued = !steward && Boolean(item.licenseNumber)
+  const stewardsQuery = useQuery({
+    queryKey: ['case-stewards', caseId],
+    enabled: licenseIssued,
+    queryFn: () => portalApi.get<PortalStewardRow[]>(`/cases/${caseId}/stewards`).then(({ data }) => data),
+  })
+  const suspensions = item.suspensions ?? []
+  const activeSuspension =
+    item.status === 'SUSPENDED'
+      ? (suspensions.find((row) => row.active) ?? suspensions[0] ?? null)
+      : null
+  const ownerLabel = item.ownerName || item.businessUnitTitle || t('cases.details')
+
+  function openAuction() {
+    if (item.status === 'REVOKED') {
+      toast.error(t('cases.revokedNoRequest'))
+      return
+    }
+    if (item.status === 'EXPIRED') {
+      toast.error(t('cases.expiredNoRequest'))
+      return
+    }
+    if (!item.licenseNumber) {
+      toast.error(t('cases.auction.licenseRequired'))
+      return
+    }
+    const open = item.requests.find((request) => request.status === 'OPEN')
+    if (open?.type === 'AUCTION') {
+      navigate(`/cases/${caseId}/auction/${open.id}`)
+      return
+    }
+    if (open) {
+      toast.error(t('cases.auction.openRequest'))
+      return
+    }
+    navigate(`/cases/${caseId}/auction/new`)
+  }
+
+  function openStewardRequest() {
+    if (item.status === 'REVOKED') {
+      toast.error(t('cases.revokedNoRequest'))
+      return
+    }
+    if (item.status === 'EXPIRED') {
+      toast.error(t('cases.expiredNoSteward'))
+      return
+    }
+    if (!item.futureActions.stewardship.enabled) return
+    setStewardRequestOpen(true)
+  }
+
+  async function openLocationChange() {
+    if (item.status === 'REVOKED') {
+      toast.error(t('cases.revokedNoRequest'))
+      return
+    }
+    if (item.status === 'EXPIRED') {
+      toast.error(t('cases.expiredOnlyRenewal'))
+      return
+    }
+    const open = item.requests.find((request) => request.status === 'OPEN')
+    if (open && requestTypeOf(open.type) === 'LOCATION_CHANGE') {
+      navigate(`/cases/${caseId}/location-change/${open.id}`)
+      return
+    }
+    const latest = item.requests.find((request) => requestTypeOf(request.type) === 'LOCATION_CHANGE')
+    if (open) {
+      if (latest) {
+        navigate(`/cases/${caseId}/location-change/${latest.id}`)
+        return
+      }
+      toast.error(t('cases.openRequest'))
+      return
+    }
+    if (!item.futureActions.locationChange.enabled) return
+    try {
+      const { data } = await portalApi.post<{ id: string }>(`/cases/${caseId}/location-change`)
+      navigate(`/cases/${caseId}/location-change/${data.id}`)
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, t('app.error')))
+    }
+  }
+
+  async function openRenewal() {
+    if (item.status === 'REVOKED') {
+      toast.error(t('cases.revokedNoRequest'))
+      return
+    }
+    const open = item.requests.find((request) => request.status === 'OPEN')
+    if (open && requestTypeOf(open.type) === 'RENEWAL') {
+      navigate(`/cases/${caseId}/renewal/${open.id}`)
+      return
+    }
+    const latestRenewal = item.requests.find((request) => requestTypeOf(request.type) === 'RENEWAL')
+    if (open) {
+      if (latestRenewal) {
+        navigate(`/cases/${caseId}/renewal/${latestRenewal.id}`)
+        return
+      }
+      toast.error(t('cases.openRequest'))
+      return
+    }
+    if (!item.licenseNumber) {
+      if (latestRenewal) {
+        navigate(`/cases/${caseId}/renewal/${latestRenewal.id}`)
+        return
+      }
+      toast.error(t('cases.renewalLicenseRequired'))
+      return
+    }
+    try {
+      const { data } = await portalApi.post<{ id: string }>(`/cases/${caseId}/renewal`)
+      navigate(`/cases/${caseId}/renewal/${data.id}`)
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, t('app.error')))
+    }
+  }
 
   function askDelete() {
     confirmDangerToast({
@@ -1876,6 +2508,32 @@ function CaseDetailContent({ item, caseId }: { item: CaseDetail; caseId: string 
           toast.success(t('cases.deleted'))
           await queryClient.invalidateQueries({ queryKey: ['cases'] })
           navigate('/cases')
+        } catch (error) {
+          toast.error(getApiErrorMessage(error, t('app.error')))
+        }
+      },
+    })
+  }
+
+  function askDeleteRequest(request: CaseRequest) {
+    confirmDangerToast({
+      title: t('cases.confirmDeleteRequest'),
+      confirmLabel: t('cases.deleteRequest'),
+      cancelLabel: t('common.cancel'),
+      onConfirm: async () => {
+        try {
+          const { data } = await portalApi.delete<{ ok: boolean; deletedCase?: boolean }>(
+            `/cases/${caseId}/requests/${request.id}`,
+          )
+          toast.success(t('cases.requestDeleted'))
+          if (data.deletedCase) {
+            await queryClient.invalidateQueries({ queryKey: ['cases'] })
+            navigate('/cases')
+            return
+          }
+          await queryClient.invalidateQueries({ queryKey: ['case', caseId] })
+          await queryClient.invalidateQueries({ queryKey: ['case-stewards', caseId] })
+          await queryClient.invalidateQueries({ queryKey: ['cases'] })
         } catch (error) {
           toast.error(getApiErrorMessage(error, t('app.error')))
         }
@@ -1895,15 +2553,28 @@ function CaseDetailContent({ item, caseId }: { item: CaseDetail; caseId: string 
         ? '!border-2 !border-red-400'
         : ''
 
+  const stewardOpenRequest = item.requests.some(
+    (request) => requestTypeOf(request.type) === 'STEWARDSHIP' && request.status === 'OPEN',
+  )
+
   return (
     <div className="space-y-4">
       <FormCard
         className={borderStyle}
-        icon={BriefcaseBusiness}
-        title={item.businessUnitTitle ?? t('cases.details')}
+        icon={steward ? Briefcase : BriefcaseBusiness}
+        title={steward ? item.ownerName || t('cases.stewardship.kind') : item.businessUnitTitle ?? t('cases.details')}
         titleExtra={
-          item.licenseNumber ? (
-            <EntityBadge icon={BadgeCheck} value={localizeDigits(item.licenseNumber)} />
+          steward ? (
+            item.cardNumber ? (
+              <span className="inline-flex max-w-full items-center gap-1.5 rounded-2xl bg-teal-50 px-3 py-1.5 text-sm font-medium text-teal-800">
+                <IdCard className="size-4 shrink-0" aria-hidden />
+                <CopyableDigits value={item.cardNumber} />
+              </span>
+            ) : licenseNumber ? (
+              <EntityBadge icon={BadgeCheck} value={localizeDigits(licenseNumber)} />
+            ) : undefined
+          ) : licenseNumber ? (
+            <EntityBadge icon={BadgeCheck} value={localizeDigits(licenseNumber)} />
           ) : undefined
         }
         chips={
@@ -1916,122 +2587,247 @@ function CaseDetailContent({ item, caseId }: { item: CaseDetail; caseId: string 
               <MetaBadge icon={FolderKanban} label={t('cases.activityGroup')} value={item.activityJob.group.title} />
             ) : null}
             {item.activityJob ? (
-              <MetaBadge icon={BriefcaseBusiness} label={t('cases.activity')} value={item.activityJob.title} />
+              <MetaBadge icon={Briefcase} label={t('cases.activityJob')} value={item.activityJob.title} />
             ) : null}
           </>
         }
         action={
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {item.violationCount > 0 ? (
-              <CountIndicator
-                count={item.violationCount}
-                label={t('cases.violationCount')}
-                icon={ShieldAlert}
-                tone="orange"
-              />
-            ) : null}
-            {item.suspensionCount > 0 ? (
-              <CountIndicator
-                count={item.suspensionCount}
-                label={t('cases.suspensionCount')}
-                icon={CirclePause}
-                tone="amber"
-              />
-            ) : null}
-            <RemainingDaysBadge
-              issuedAt={item.licenseIssuedAt}
-              expiresAt={item.licenseExpiresAt}
-              label={t('cases.daysRemaining')}
-              overdueLabel={t('cases.daysOverdue')}
-            />
-          </div>
+          item.violationCount > 0 || item.suspensionCount > 0 || (steward ? issued : true) ? (
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {item.violationCount > 0 ? (
+                <CountIndicator
+                  count={item.violationCount}
+                  label={t('cases.violationCount')}
+                  icon={ShieldAlert}
+                  tone="orange"
+                  onClick={() => setViolationsOpen(true)}
+                />
+              ) : null}
+              {item.suspensionCount > 0 ? (
+                <CountIndicator
+                  count={item.suspensionCount}
+                  label={t('cases.suspensionCount')}
+                  icon={CirclePause}
+                  tone="amber"
+                  onClick={() => setSuspensionsOpen(true)}
+                />
+              ) : null}
+              {steward && !issued ? null : (
+                <RemainingDaysBadge
+                  issuedAt={steward ? item.cardIssuedAt ?? null : item.licenseIssuedAt}
+                  expiresAt={steward ? item.cardExpiresAt ?? null : item.licenseExpiresAt}
+                  label={t('cases.daysRemaining')}
+                  overdueLabel={t('cases.daysOverdue')}
+                />
+              )}
+            </div>
+          ) : undefined
         }
       >
         <div className={formBodyClassName}>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 sm:gap-3">
-            <FormFactTile icon={FileText} label={t('cases.trackingCode')} value={item.trackingCode ? localizeDigits(item.trackingCode) : undefined} />
-            <FormFactTile icon={CalendarDays} label={t('cases.licenseIssued')} value={formatDate(item.licenseIssuedAt)} tone="mint" />
-            <FormFactTile icon={CalendarClock} label={t('cases.licenseExpires')} value={formatDate(item.licenseExpiresAt)} />
-            <FormFactTile icon={MapPin} label={t('cases.city')} value={item.premiseCity?.nameFa} tone="mint" />
-          </div>
+          {activeSuspension ? <ActiveSuspensionNotice suspension={activeSuspension} /> : null}
 
-          {issued ? (
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <Link to={`/cases/${caseId}/dossier`}>
-                <Button type="button" className="!rounded-xl !px-2.5 !py-1.5 !text-xs">
-                  <Eye className="size-3.5" aria-hidden />
-                  {t('cases.viewDossier')}
-                </Button>
-              </Link>
-              <Link to={`/cases/${caseId}/finance`}>
-                <Button type="button" variant="ghost" className="!rounded-xl !px-2.5 !py-1.5 !text-xs">
-                  <Wallet className="size-3.5" aria-hidden />
-                  {t('cases.finance')}
-                </Button>
-              </Link>
-              <Link to={`/cases/${caseId}/license`}>
-                <Button type="button" variant="soft" className="!rounded-xl !px-2.5 !py-1.5 !text-xs">
-                  <BadgeCheck className="size-3.5" aria-hidden />
-                  {t('cases.viewLicense')}
-                </Button>
-              </Link>
-            </div>
-          ) : null}
-
-          <section className="rounded-2xl border border-teal-100 bg-cream-50/70 p-4">
-            <FormSectionTitle icon={ClipboardList}>{t('cases.operationsTitle')}</FormSectionTitle>
-            {issued ? (
-              <>
-                <div className="flex flex-wrap justify-center gap-2">
-                  <OperationTile icon={RefreshCw} label={t('cases.renewal')} disabled={!item.futureActions.renewal.enabled} />
-                  <OperationTile icon={Gavel} label={t('cases.auction')} disabled={!item.futureActions.auction.enabled} />
-                  <OperationTile icon={IdCard} label={t('cases.stewardship')} disabled={!item.futureActions.stewardship.enabled} />
-                  <OperationTile icon={MapPinned} label={t('cases.locationChange')} disabled={!item.futureActions.locationChange.enabled} />
+          {steward ? (
+            <>
+              <PortalHostLicenseInfo host={item.host ?? null} />
+              {issued ? (
+                <div className="grid gap-2 sm:grid-cols-3 sm:gap-3">
+                  <FormFactTile icon={CalendarDays} label={t('cases.stewardship.cardIssued')} value={formatDate(item.cardIssuedAt)} tone="mint" />
+                  <FormFactTile icon={CalendarClock} label={t('cases.stewardship.cardExpires')} value={formatDate(item.cardExpiresAt)} />
+                  <FormFactTile icon={MapPin} label={t('cases.city')} value={item.premiseCity?.nameFa} tone="mint" />
                 </div>
-                <p className="mt-3 text-center text-xs leading-5 text-ink-500">{t('cases.futureOperationsHint')}</p>
-              </>
-            ) : (
-              <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-                <span />
-                <Link to={`/issuance/${caseId}`} className="justify-self-center">
-                  <Button type="button" className="case-formation-continue-blink">
-                    <Play className="size-4" aria-hidden />
-                    {t('cases.continueFormation')}
+              ) : null}
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                {issued ? (
+                  <Link to={`/cases/${caseId}/dossier`}>
+                    <Button type="button" className={caseQuickActionClassName}>
+                      <Eye className="size-3.5" aria-hidden />
+                      {t('cases.viewDossier')}
+                    </Button>
+                  </Link>
+                ) : null}
+                <Link to={`/cases/${caseId}/finance`}>
+                  <Button type="button" variant="ghost" className={caseQuickActionClassName}>
+                    <Wallet className="size-3.5" aria-hidden />
+                    {t('cases.finance')}
                   </Button>
                 </Link>
-                <div className="flex justify-end">
-                  <Button type="button" variant="danger" onClick={askDelete}>
-                    <Trash2 className="size-4" aria-hidden />
-                    {t('cases.deleteCase')}
-                  </Button>
-                </div>
+                {issued ? (
+                  <Link to={`/cases/${caseId}/stewardship/card`}>
+                    <Button type="button" variant="soft" className={caseQuickActionClassName}>
+                      <IdCard className="size-3.5" aria-hidden />
+                      {t('cases.stewardship.cardTitle')}
+                    </Button>
+                  </Link>
+                ) : null}
               </div>
-            )}
-          </section>
+              {item.status !== 'REVOKED' && (issued || stewardOpenRequest) ? (
+                <section className="rounded-2xl border border-teal-100 bg-cream-50/70 p-4">
+                  <FormSectionTitle icon={ClipboardList} className="mb-3">
+                    {t('cases.operationsTitle')}
+                  </FormSectionTitle>
+                  {issued ? (
+                    <div className="flex flex-wrap justify-center gap-2">
+                      <Button type="button" variant="danger" className={caseQuickActionClassName} onClick={() => setStewardRevokeOpen(true)}>
+                        <Ban className="size-3.5" aria-hidden />
+                        {t('cases.stewardship.revokeCard')}
+                      </Button>
+                    </div>
+                  ) : stewardOpenRequest ? (
+                    <div className="flex justify-center">
+                      <Link to={`/cases/${caseId}/stewardship`}>
+                        <Button type="button" className="case-formation-continue-blink">
+                          <Play className="size-4" aria-hidden />
+                          {t('cases.continueFormation')}
+                        </Button>
+                      </Link>
+                    </div>
+                  ) : null}
+                </section>
+              ) : null}
+            </>
+          ) : (
+            <>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 sm:gap-3">
+                <FormFactTile icon={FileText} label={t('cases.trackingCode')} value={item.trackingCode ? localizeDigits(item.trackingCode) : undefined} />
+                <FormFactTile icon={CalendarDays} label={t('cases.licenseIssued')} value={formatDate(licenseIssuedAt)} tone="mint" />
+                <FormFactTile icon={CalendarClock} label={t('cases.licenseExpires')} value={formatDate(licenseExpiresAt)} />
+                <FormFactTile icon={MapPin} label={t('cases.city')} value={item.premiseCity?.nameFa} tone="mint" />
+              </div>
+
+              {issued ? (
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <Link to={`/cases/${caseId}/dossier`}>
+                    <Button type="button" className={caseQuickActionClassName}>
+                      <Eye className="size-3.5" aria-hidden />
+                      {t('cases.viewDossier')}
+                    </Button>
+                  </Link>
+                  <Link to={`/cases/${caseId}/finance`}>
+                    <Button type="button" variant="ghost" className={caseQuickActionClassName}>
+                      <Wallet className="size-3.5" aria-hidden />
+                      {t('cases.finance')}
+                    </Button>
+                  </Link>
+                  <Link to={`/cases/${caseId}/license`}>
+                    <Button type="button" variant="soft" className={caseQuickActionClassName}>
+                      <BadgeCheck className="size-3.5" aria-hidden />
+                      {t('cases.viewLicense')}
+                    </Button>
+                  </Link>
+                </div>
+              ) : null}
+
+              <section className="rounded-2xl border border-teal-100 bg-cream-50/70 p-4">
+                <FormSectionTitle icon={ClipboardList}>{t('cases.operationsTitle')}</FormSectionTitle>
+                {issued ? (
+                  <>
+                    <div className="flex flex-wrap justify-center gap-2">
+                      <OperationTile
+                        icon={RefreshCw}
+                        label={t('cases.renewal')}
+                        disabled={!canOpenRenewal(item)}
+                        onClick={() => void openRenewal()}
+                      />
+                      <OperationTile
+                        icon={Gavel}
+                        label={t('cases.auction.title')}
+                        disabled={!item.futureActions.auction.enabled}
+                        onClick={openAuction}
+                      />
+                      <OperationTile
+                        icon={IdCard}
+                        label={t('cases.requestSteward')}
+                        disabled={!item.futureActions.stewardship.enabled}
+                        onClick={openStewardRequest}
+                      />
+                      <OperationTile
+                        icon={MapPinned}
+                        label={t('cases.locationChange')}
+                        disabled={!item.futureActions.locationChange.enabled}
+                        onClick={() => void openLocationChange()}
+                      />
+                    </div>
+                    {!item.futureActions.locationChange.enabled ? (
+                      <p className="mt-3 text-center text-xs leading-5 text-ink-500">{t('cases.futureOperationsHint')}</p>
+                    ) : null}
+                  </>
+                ) : (
+                  <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+                    <span />
+                    <Link to={`/issuance/${caseId}`} className="justify-self-center">
+                      <Button type="button" className="case-formation-continue-blink">
+                        <Play className="size-4" aria-hidden />
+                        {t('cases.continueFormation')}
+                      </Button>
+                    </Link>
+                    <div className="flex justify-end">
+                      <Button type="button" variant="danger" onClick={askDelete}>
+                        <Trash2 className="size-4" aria-hidden />
+                        {t('cases.deleteCase')}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </section>
+            </>
+          )}
         </div>
       </FormCard>
+
+      {licenseIssued ? (
+        <CaseLicenseStewardsSection
+          hostCaseId={caseId}
+          items={stewardsQuery.data ?? []}
+          canAdd={item.futureActions.stewardship.enabled}
+          onAdd={openStewardRequest}
+        />
+      ) : null}
 
       <FormCard icon={FileText} title={t('cases.requestsTitle')}>
         <div className={formBodyClassName}>
           {item.requests.length ? (
-            <div className="overflow-x-auto rounded-2xl border border-line">
+            <div data-list-table className="overflow-x-auto rounded-2xl border border-line">
               <table className="w-full min-w-[760px] text-sm">
                 <thead className="bg-cream-50 text-ink-700">
                   <tr>
-                    <th className="px-4 py-3 font-medium">{t('cases.requestDate')}</th>
-                    <th className="px-4 py-3 font-medium">{t('cases.requestNumber')}</th>
-                    <th className="px-4 py-3 font-medium">{t('cases.requestType')}</th>
-                    <th className="px-4 py-3 font-medium">{t('cases.requestStatus')}</th>
-                    <th className="px-4 py-3 font-medium">{t('cases.completedAt')}</th>
-                    <th className="w-px min-w-max whitespace-nowrap px-4 py-3 font-medium">{t('common.actions')}</th>
+                    <th className="px-4 py-3 text-start font-medium">{t('cases.requestDate')}</th>
+                    <th className="px-4 py-3 text-start font-medium">{t('cases.requestNumber')}</th>
+                    <th className="px-4 py-3 text-start font-medium">{t('cases.requestType')}</th>
+                    <th className="px-4 py-3 text-start font-medium">{t('cases.requestStatus')}</th>
+                    <th className="px-4 py-3 text-start font-medium">{t('cases.completedAt')}</th>
+                    <th className="w-px min-w-max whitespace-nowrap px-4 py-3 text-start font-medium">{t('common.actions')}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {item.requests.map((request) => {
                     const RequestIcon = REQUEST_ICONS[request.type] ?? FileText
                     const style = REQUEST_STYLES[request.type] ?? REQUEST_STYLES.ISSUANCE
+                    const kind = requestTypeOf(request.type)
+                    const viewTo = caseRequestViewTo(caseId, request, item)
+                    const inProgress = request.status === 'OPEN'
+                    const showContinue =
+                      inProgress &&
+                      (kind !== 'STEWARDSHIP' || request.formationStep < 1)
+                    const stewardshipCardView = kind === 'STEWARDSHIP' && Boolean(item.cardNumber) && !inProgress
+                    const stepLabel = inProgress
+                      ? requestAwaitingIntake(request.type, request.formationStep, request.intakeSubmittedAt)
+                        ? t('cases.awaitingIntakeReview')
+                        : requestCurrentStepLabel(request.type, request.formationStep, t)
+                      : null
                     return (
-                      <tr key={request.id} className="border-t border-line">
+                      <tr
+                        key={request.id}
+                        data-list-row={viewTo ? true : undefined}
+                        tabIndex={viewTo ? 0 : undefined}
+                        className={`border-t border-line ${
+                          viewTo
+                            ? 'cursor-pointer hover:bg-cream-50 focus:outline-none focus-visible:shadow-[inset_0_0_0_2px_#5ed4ce]'
+                            : ''
+                        }`}
+                        onClick={viewTo ? () => navigate(viewTo) : undefined}
+                        onKeyDown={viewTo ? (event) => onCatalogRowKeyDown(event, viewTo, navigate) : undefined}
+                      >
                         <td className={`border-s-4 px-4 py-3 ${style.edge}`}>{formatDate(request.createdAt)}</td>
                         <td className="px-4 py-3 font-medium text-ink-900">{localizeDigits(request.number)}</td>
                         <td className="px-4 py-3">
@@ -2041,23 +2837,62 @@ function CaseDetailContent({ item, caseId }: { item: CaseDetail; caseId: string 
                           </RequestPill>
                         </td>
                         <td className="px-4 py-3">
-                          <RequestPill>{statusLabel(request.status, t)}</RequestPill>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <RequestPill>{statusLabel(request.status, t)}</RequestPill>
+                            {stepLabel ? (
+                              <RequestPill className="bg-mint-50 text-teal-900 ring-mint-200">{stepLabel}</RequestPill>
+                            ) : null}
+                          </div>
                         </td>
                         <td className="px-4 py-3">{formatDate(request.completedAt)}</td>
                         <td className="w-px min-w-max whitespace-nowrap px-4 py-3">
-                          {request.type === 'ISSUANCE' ? (
-                            <Link to={`/issuance/${caseId}`}>
-                              <Button type="button" variant="ghost" className="!rounded-xl !px-2.5 !py-1.5 !text-xs">
+                          <div className="flex flex-nowrap items-center gap-1.5">
+                            {viewTo ? (
+                              <Link to={viewTo} data-row-view onClick={(event) => event.stopPropagation()}>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  className={`!rounded-xl !px-2.5 !py-1.5 !text-xs${
+                                    showContinue
+                                      ? ' case-continue-request-blink !border-emerald-500 !bg-emerald-600 !text-white hover:!bg-emerald-700'
+                                      : ''
+                                  }`}
+                                >
+                                  {showContinue ? (
+                                    <Play className="size-3.5 -scale-x-100" aria-hidden />
+                                  ) : stewardshipCardView ? (
+                                    <IdCard className="size-3.5" aria-hidden />
+                                  ) : (
+                                    <Eye className="size-3.5" aria-hidden />
+                                  )}
+                                  {showContinue
+                                    ? t('cases.continueRequest')
+                                    : stewardshipCardView
+                                      ? t('cases.stewardship.viewCard')
+                                      : t('cases.viewRequest')}
+                                </Button>
+                              </Link>
+                            ) : (
+                              <Button type="button" variant="ghost" className="!rounded-xl !px-2.5 !py-1.5 !text-xs" disabled title={t('cases.future')}>
                                 <Eye className="size-3.5" aria-hidden />
                                 {t('cases.viewRequest')}
                               </Button>
-                            </Link>
-                          ) : (
-                            <Button type="button" variant="ghost" className="!rounded-xl !px-2.5 !py-1.5 !text-xs" disabled title={t('cases.future')}>
-                              <Eye className="size-3.5" aria-hidden />
-                              {t('cases.viewRequest')}
-                            </Button>
-                          )}
+                            )}
+                            {request.canCancel ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                className="!rounded-xl !px-2.5 !py-1.5 !text-xs text-red-700 hover:!bg-red-50"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  askDeleteRequest(request)
+                                }}
+                              >
+                                <Trash2 className="size-3.5" aria-hidden />
+                                {t('cases.deleteRequest')}
+                              </Button>
+                            ) : null}
+                          </div>
                         </td>
                       </tr>
                     )
@@ -2070,7 +2905,562 @@ function CaseDetailContent({ item, caseId }: { item: CaseDetail; caseId: string 
           )}
         </div>
       </FormCard>
+      {violationsOpen ? (
+        <PersonViolationsModal caseId={caseId} name={ownerLabel} onClose={() => setViolationsOpen(false)} />
+      ) : null}
+      {suspensionsOpen ? (
+        <CaseSuspensionsDialog
+          caseId={caseId}
+          name={ownerLabel}
+          items={suspensions}
+          onClose={() => setSuspensionsOpen(false)}
+        />
+      ) : null}
+      {stewardRevokeOpen ? (
+        <PortalStewardRevokeDialog caseId={caseId} onClose={() => setStewardRevokeOpen(false)} />
+      ) : null}
+      {stewardRequestOpen ? (
+        <PortalStewardRequestDialog caseId={caseId} onClose={() => setStewardRequestOpen(false)} />
+      ) : null}
     </div>
+  )
+}
+
+function todayIsoDateOnly() {
+  const now = new Date()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  return `${now.getFullYear()}-${month}-${day}`
+}
+
+function PortalStewardRequestDialog({ caseId, onClose }: { caseId: string; onClose: () => void }) {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const [nationalId, setNationalId] = useState('')
+  const [phone, setPhone] = useState('')
+  const [lookup, setLookup] = useState<PortalStewardLookup | null>(null)
+  const [lookedUpId, setLookedUpId] = useState('')
+  const [looking, setLooking] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const inFlight = useRef(false)
+  const phoneInputRef = useRef<HTMLInputElement>(null)
+  useRecordDialog(onClose)
+
+  const normalized = normalizeNationalId(nationalId)
+  const person =
+    lookup?.found && lookup.person && lookedUpId === normalized ? lookup.person : null
+  const needsNewUserPhone = Boolean(lookup && !lookup.found && lookedUpId === normalized)
+  const needsExistingPhone = Boolean(person && !person.phone?.trim())
+  const needsPhone = needsNewUserPhone || needsExistingPhone
+  const busy = looking || saving
+
+  useLayoutEffect(() => {
+    if (!needsPhone || busy) return
+    const frame = requestAnimationFrame(() => phoneInputRef.current?.focus())
+    return () => cancelAnimationFrame(frame)
+  }, [busy, needsPhone])
+
+  function changeNationalId(value: string) {
+    setNationalId(value)
+    setPhone('')
+    setLookup(null)
+    setLookedUpId('')
+  }
+
+  async function searchPerson(raw = nationalId) {
+    const id = normalizeNationalId(raw)
+    if (!isValidIranianNationalId(id)) {
+      toast.error(t('auth.nationalIdInvalid'))
+      return null
+    }
+    if (inFlight.current || saving) return null
+    inFlight.current = true
+    setLooking(true)
+    try {
+      const { data } = await portalApi.get<PortalStewardLookup>(`/cases/${caseId}/stewards/lookup`, {
+        params: { nationalId: id },
+      })
+      setLookup(data)
+      setLookedUpId(id)
+      return data
+    } catch (error) {
+      setLookup(null)
+      setLookedUpId('')
+      toast.error(getApiErrorMessage(error, t('app.error')))
+      return null
+    } finally {
+      inFlight.current = false
+      setLooking(false)
+    }
+  }
+
+  async function createCase(id: string, nextPhone?: string) {
+    if (inFlight.current || saving) return
+    setSaving(true)
+    try {
+      await portalApi.post(`/cases/${caseId}/stewards`, {
+        nationalId: id,
+        ...(nextPhone ? { phone: nextPhone } : {}),
+      })
+      toast.success(t('cases.stewardship.created'))
+      await queryClient.invalidateQueries({ queryKey: ['case', caseId] })
+      await queryClient.invalidateQueries({ queryKey: ['case-stewards', caseId] })
+      await queryClient.invalidateQueries({ queryKey: ['case-dossier', caseId] })
+      onClose()
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, t('app.error')))
+      setSaving(false)
+    }
+  }
+
+  async function submit() {
+    if (person && !needsExistingPhone) {
+      await createCase(person.nationalId)
+      return
+    }
+    if (needsPhone) {
+      const phoneDigits = parseDigitString(phone).slice(0, 11)
+      if (!/^09\d{9}$/.test(phoneDigits)) {
+        toast.error(t('auth.phoneInvalid'))
+        return
+      }
+      await createCase(normalizeNationalId(person?.nationalId || nationalId), phoneDigits)
+      return
+    }
+    const id = normalizeNationalId(nationalId)
+    const alreadyLookedUp = Boolean(lookup && lookedUpId === id)
+    const result = alreadyLookedUp ? lookup : await searchPerson(id)
+    if (!result) return
+    if (result.found && result.person) return
+    const phoneDigits = parseDigitString(phone).slice(0, 11)
+    if (!alreadyLookedUp && !phoneDigits) return
+    if (!/^09\d{9}$/.test(phoneDigits)) {
+      toast.error(t('auth.phoneInvalid'))
+      return
+    }
+    await createCase(id, phoneDigits)
+  }
+
+  return createPortal(
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-ink-900/30 p-4" data-nested-dialog>
+      <button type="button" className="absolute inset-0 cursor-default" aria-label={t('common.close')} onClick={onClose} />
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="portal-steward-request-title"
+        className="relative z-10 w-full max-w-3xl overflow-hidden rounded-3xl border border-line bg-white shadow-xl"
+      >
+        <header className="relative shrink-0 overflow-hidden bg-gradient-to-e from-mint-50 via-white to-teal-50 px-5 py-4 pe-14">
+          <HeaderDecor />
+          <button
+            type="button"
+            className="absolute end-3 top-3 z-10 cursor-pointer rounded-xl p-2 text-ink-500 hover:bg-white"
+            onClick={onClose}
+            aria-label={t('common.close')}
+          >
+            <X className="size-5" aria-hidden />
+          </button>
+          <div className="relative flex min-w-0 items-center gap-3">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-teal-500 text-white shadow-[0_8px_16px_rgba(46,189,182,0.32)]">
+              <UserRound className="size-5" aria-hidden />
+            </span>
+            <div className="min-w-0">
+              <h2 id="portal-steward-request-title" className="truncate text-sm font-semibold text-ink-900">
+                {t('cases.stewardship.addNewTitle')}
+              </h2>
+              <p className="mt-0.5 text-xs text-ink-500">{t('cases.stewardship.addTitle')}</p>
+            </div>
+          </div>
+        </header>
+        <AppForm onSubmit={() => void submit()} autoFocusFirst className="space-y-4 p-5 sm:p-6">
+          <p className="rounded-2xl border border-teal-200 bg-teal-50 px-4 py-3 text-sm leading-7 text-ink-700">
+            {t('cases.stewardship.addNationalIdHint')}
+          </p>
+          <FormField icon={Fingerprint} label={t('auth.nationalId')} htmlFor="portalStewardNationalId">
+            <input
+              id="portalStewardNationalId"
+              required
+              inputMode="numeric"
+              className={`${fieldClassName} digit-field`}
+              value={nationalId}
+              disabled={busy}
+              onChange={(event) => changeNationalId(event.target.value)}
+              onBlur={() => {
+                if (isValidIranianNationalId(normalized) && lookedUpId !== normalized) {
+                  void searchPerson()
+                }
+              }}
+            />
+          </FormField>
+          {person ? (
+            <div className="space-y-3">
+              <p className="text-sm leading-7 text-ink-700">{t('cases.stewardship.personFoundHint')}</p>
+              <div className="grid gap-2 sm:grid-cols-2 sm:gap-3">
+                <FormFactTile icon={UserRound} label={t('auth.firstName')} value={person.firstName || undefined} tone="teal" />
+                <FormFactTile icon={UserRound} label={t('auth.lastName')} value={person.lastName || undefined} tone="mint" />
+                {person.phone?.trim() ? <FormFactTile icon={Phone} label={t('auth.phone')} copyValue={person.phone} /> : null}
+                <FormFactTile icon={IdCard} label={t('auth.nationalId')} copyValue={person.nationalId} tone="mint" />
+              </div>
+            </div>
+          ) : null}
+          {needsPhone ? (
+            <div className="space-y-3">
+              <p className="rounded-2xl border border-teal-200 bg-teal-50 px-4 py-3 text-sm leading-7 text-ink-700">
+                {needsExistingPhone ? (
+                  t('cases.stewardship.missingPhoneHint')
+                ) : (
+                  <>
+                    {t('cases.stewardship.newLoginHint')}
+                    <span className="mt-2 block font-medium">{t('cases.stewardship.newLoginUsername')}</span>
+                    <span className="block font-medium">{t('cases.stewardship.newLoginPassword')}</span>
+                  </>
+                )}
+              </p>
+              <FormField icon={Phone} label={t('auth.phone')} htmlFor="portalStewardPhone">
+                <input
+                  id="portalStewardPhone"
+                  ref={phoneInputRef}
+                  required
+                  inputMode="numeric"
+                  autoComplete="tel"
+                  maxLength={11}
+                  pattern="09[0-9]{9}"
+                  className={`${fieldClassName} digit-field`}
+                  value={phone}
+                  disabled={busy}
+                  onChange={(event) => setPhone(parseDigitString(event.target.value).slice(0, 11))}
+                />
+              </FormField>
+            </div>
+          ) : null}
+          <div className="flex flex-wrap justify-end gap-2 pt-2">
+            {person ? (
+              <Button type="submit" disabled={busy}>
+                <Check className="size-4" aria-hidden />
+                {t('cases.stewardship.confirmCreate')}
+              </Button>
+            ) : (
+              <Button type="submit" disabled={busy}>
+                <UserPlus className="size-4" aria-hidden />
+                {t('cases.stewardship.addTitle')}
+              </Button>
+            )}
+          </div>
+        </AppForm>
+      </section>
+    </div>,
+    document.body,
+  )
+}
+
+function CaseLicenseStewardsSection({
+  hostCaseId,
+  items,
+  canAdd,
+  onAdd,
+}: {
+  hostCaseId: string
+  items: PortalStewardRow[]
+  canAdd: boolean
+  onAdd: () => void
+}) {
+  const { t } = useTranslation()
+  if (items.length === 0) return null
+  return (
+    <FormCard
+      icon={IdCard}
+      title={t('cases.stewardsTitle')}
+      action={
+        canAdd ? (
+          <Button type="button" variant="soft" onClick={onAdd}>
+            <Plus className="size-4" aria-hidden />
+            {t('cases.stewardship.add')}
+          </Button>
+        ) : undefined
+      }
+    >
+      <div className="p-5 sm:p-6">
+        <LicenseStewardsTable hostCaseId={hostCaseId} items={items} />
+      </div>
+    </FormCard>
+  )
+}
+
+function LicenseStewardsTable({ hostCaseId, items }: { hostCaseId: string; items: PortalStewardRow[] }) {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const [revokeId, setRevokeId] = useState<string | null>(null)
+  function askCancel(row: PortalStewardRow) {
+    confirmDangerToast({
+      title: t('cases.stewardship.cancelOpenConfirmTitle'),
+      confirmLabel: t('cases.stewardship.cancelOpenRequest'),
+      cancelLabel: t('common.cancel'),
+      onConfirm: async () => {
+        try {
+          await portalApi.delete(`/cases/${hostCaseId}/stewards/${row.id}`)
+          toast.success(t('cases.stewardship.cancelOpenSaved'))
+          await queryClient.invalidateQueries({ queryKey: ['case-stewards', hostCaseId] })
+          await queryClient.invalidateQueries({ queryKey: ['case', hostCaseId] })
+          await queryClient.invalidateQueries({ queryKey: ['case-dossier', hostCaseId] })
+        } catch (error) {
+          toast.error(getApiErrorMessage(error, t('app.error')))
+        }
+      },
+    })
+  }
+  return (
+    <>
+      <div className="overflow-x-auto rounded-2xl border border-line">
+        <table className="w-full min-w-[760px] text-sm">
+          <thead className="bg-cream-50 text-ink-700">
+            <tr>
+              <th className="px-4 py-3 text-start font-medium">{t('account.fullName')}</th>
+              <th className="px-4 py-3 text-start font-medium">{t('account.nationalId')}</th>
+              <th className="px-4 py-3 text-start font-medium">{t('cases.cardNumber')}</th>
+              <th className="px-4 py-3 text-start font-medium">{t('cases.requestAt')}</th>
+              <th className="px-4 py-3 text-start font-medium">{t('cases.cardIssuedOn')}</th>
+              <th className="px-4 py-3 text-start font-medium">{t('cases.cardExpiresOn')}</th>
+              <th className="px-4 py-3 text-start font-medium">{t('cases.listStep')}</th>
+              <th className="w-px min-w-max whitespace-nowrap px-4 py-3 text-start font-medium">{t('common.actions')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((row) => (
+              <LicenseStewardRow
+                key={row.id}
+                row={row}
+                onCancel={() => askCancel(row)}
+                onRevoke={() => setRevokeId(row.id)}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {revokeId ? (
+        <PortalStewardRevokeDialog
+          caseId={revokeId}
+          hostCaseId={hostCaseId}
+          onClose={() => setRevokeId(null)}
+        />
+      ) : null}
+    </>
+  )
+}
+
+function LicenseStewardRow({
+  row,
+  onCancel,
+  onRevoke,
+}: {
+  row: PortalStewardRow
+  onCancel: () => void
+  onRevoke: () => void
+}) {
+  const { t } = useTranslation()
+  const revoked = row.status === 'REVOKED'
+  const inReview = row.requestStatus === 'OPEN' && !row.cardNumber && !revoked
+  const active = Boolean(row.cardNumber) && !revoked && row.requestStatus !== 'OPEN'
+  const label = revoked ? t('cases.stewardRevoked') : active ? t('cases.stewardActive') : t('cases.stewardReviewing')
+  const badge = revoked
+    ? 'bg-red-50 text-red-700 ring-red-200'
+    : active
+      ? 'bg-mint-50 text-teal-900 ring-mint-200'
+      : 'bg-amber-50 text-amber-900 ring-amber-200'
+  return (
+    <tr className="border-t border-line">
+      <td className="px-4 py-3">
+        <div className="flex flex-col items-start gap-1.5">
+          <span className="inline-flex items-center gap-2 font-medium text-ink-900">
+            <UserRound className="size-4 text-teal-600" aria-hidden />
+            {[row.firstName, row.lastName].filter(Boolean).join(' ').trim() || row.fullName || '—'}
+          </span>
+          {row.phone ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-mint-50 px-2.5 py-0.5 text-xs font-medium text-teal-900 ring-1 ring-mint-200">
+              <Phone className="size-3" aria-hidden />
+              {localizeDigits(row.phone)}
+            </span>
+          ) : null}
+        </div>
+      </td>
+      <td className="px-4 py-3">
+        {row.nationalId ? (
+          <span className="inline-flex items-center rounded-full bg-teal-50 px-2.5 py-0.5 text-xs font-medium text-teal-900 ring-1 ring-teal-200">
+            {localizeDigits(row.nationalId)}
+          </span>
+        ) : (
+          '—'
+        )}
+      </td>
+      <td className="px-4 py-3">
+        {row.cardNumber ? localizeDigits(row.cardNumber) : row.requestNumber ? localizeDigits(row.requestNumber) : '—'}
+      </td>
+      <td className="px-4 py-3">{row.requestCreatedAt ? formatDate(row.requestCreatedAt) : '—'}</td>
+      <td className="px-4 py-3">{row.cardIssuedAt ? formatDate(row.cardIssuedAt) : '—'}</td>
+      <td className="px-4 py-3">{row.cardExpiresAt ? formatDate(row.cardExpiresAt) : '—'}</td>
+      <td className="px-4 py-3">
+        <span className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ring-1 ${badge}`}>{label}</span>
+      </td>
+      <td className="w-px min-w-max whitespace-nowrap px-4 py-3">
+        {inReview ? (
+          <Button type="button" variant="ghost" className="!rounded-xl !px-2.5 !py-1.5 !text-xs text-red-700 hover:!bg-red-50" onClick={onCancel}>
+            <Trash2 className="size-3.5" aria-hidden />
+            {t('cases.stewardship.cancelOpenRequest')}
+          </Button>
+        ) : row.cardNumber ? (
+          <div className="flex flex-nowrap items-center justify-end gap-1.5">
+            <Link to={`/cases/${row.id}/stewardship/card`}>
+              <Button type="button" variant="ghost" className="!rounded-xl !px-2.5 !py-1.5 !text-xs">
+                <IdCard className="size-3.5" aria-hidden />
+                {t('cases.stewardship.viewCard')}
+              </Button>
+            </Link>
+            {row.status === 'ACTIVE' ? (
+              <Button
+                type="button"
+                variant="ghost"
+                className="!rounded-xl !px-2.5 !py-1.5 !text-xs text-red-700 hover:!bg-red-50"
+                onClick={onRevoke}
+              >
+                <Ban className="size-3.5" aria-hidden />
+                {t('cases.stewardship.revokeRequest')}
+              </Button>
+            ) : null}
+          </div>
+        ) : (
+          '—'
+        )}
+      </td>
+    </tr>
+  )
+}
+
+async function stewardRevocationBody(fields: Record<string, string>, file: File | null) {
+  const body = new FormData()
+  for (const [key, value] of Object.entries(fields)) body.append(key, value)
+  if (file) {
+    const prepared = file.type.startsWith('image/') ? await optimizeImageFile(file) : file
+    body.append('file', prepared)
+  }
+  return body
+}
+
+function PortalStewardRevokeDialog({
+  caseId,
+  hostCaseId,
+  onClose,
+}: {
+  caseId: string
+  hostCaseId?: string
+  onClose: () => void
+}) {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const requestedAt = useMemo(() => new Date().toISOString(), [])
+  const [revokedAt, setRevokedAt] = useState(todayIsoDateOnly)
+  const [reason, setReason] = useState('')
+  const [attachment, setAttachment] = useState<File | null>(null)
+  const [saving, setSaving] = useState(false)
+  useRecordDialog(onClose)
+
+  async function save() {
+    if (saving || !reason.trim() || !revokedAt) return
+    setSaving(true)
+    try {
+      await portalApi.post(
+        `/cases/${caseId}/stewardship/revocation`,
+        await stewardRevocationBody({ reason: reason.trim(), revokedAt }, attachment),
+      )
+      toast.success(t('cases.stewardship.revokeSaved'))
+      await queryClient.invalidateQueries({ queryKey: ['case', caseId] })
+      await queryClient.invalidateQueries({ queryKey: ['case-stewardship', caseId] })
+      await queryClient.invalidateQueries({ queryKey: ['case-dossier', caseId] })
+      if (hostCaseId) {
+        await queryClient.invalidateQueries({ queryKey: ['case', hostCaseId] })
+        await queryClient.invalidateQueries({ queryKey: ['case-stewards', hostCaseId] })
+        await queryClient.invalidateQueries({ queryKey: ['case-dossier', hostCaseId] })
+      }
+      onClose()
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, t('app.error')))
+      setSaving(false)
+    }
+  }
+
+  function submit() {
+    if (saving || !reason.trim() || !revokedAt) return
+    confirmDangerToast({
+      title: t('cases.stewardship.revokeConfirmTitle'),
+      confirmLabel: t('cases.stewardship.revokeAction'),
+      cancelLabel: t('common.cancel'),
+      onConfirm: () => save(),
+    })
+  }
+
+  return createPortal(
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-ink-900/30 p-4" data-nested-dialog>
+      <button type="button" className="absolute inset-0 cursor-default" aria-label={t('common.close')} onClick={onClose} />
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="portal-steward-revoke-title"
+        className="relative z-10 flex max-h-[min(52rem,92dvh)] w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-line bg-white shadow-xl"
+      >
+        <header className="relative shrink-0 overflow-hidden bg-gradient-to-e from-red-50 via-white to-rose-50 px-5 py-4">
+          <div className="relative flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-red-600 text-white shadow-[0_8px_16px_rgba(220,38,38,0.28)]">
+                <Ban className="size-5" aria-hidden />
+              </span>
+              <h2 id="portal-steward-revoke-title" className="truncate text-sm font-semibold text-ink-900">
+                {t('cases.stewardship.revokeRequest')}
+              </h2>
+            </div>
+            <button type="button" className="cursor-pointer rounded-xl p-2 text-ink-500 hover:bg-white" onClick={onClose} aria-label={t('common.close')}>
+              <X className="size-4" aria-hidden />
+            </button>
+          </div>
+        </header>
+        <AppForm onSubmit={submit} autoFocusFirst className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-5 sm:p-6">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <FormField icon={CalendarClock} label={t('cases.stewardship.requestAt')}>
+              <div className={`${fieldClassName} flex items-center bg-cream-50`}>
+                <DateText value={requestedAt} withTime />
+              </div>
+            </FormField>
+            <FormField icon={CalendarDays} label={t('cases.stewardship.revokeOn')} htmlFor="portalStewardRevokeOn">
+              <PersianDateField id="portalStewardRevokeOn" value={revokedAt} onChange={(value) => setRevokedAt(value ?? '')} />
+              <input className="sr-only" tabIndex={-1} value={revokedAt} required readOnly onChange={() => undefined} />
+            </FormField>
+          </div>
+          <FormField icon={MessageSquareText} label={t('cases.stewardship.requestText')} htmlFor="portalStewardRevokeText">
+            <textarea
+              id="portalStewardRevokeText"
+              rows={12}
+              required
+              maxLength={8000}
+              value={reason}
+              placeholder={t('cases.stewardship.requestTextPlaceholder')}
+              onChange={(event) => setReason(event.target.value)}
+              className={`${fieldClassName} min-h-64 resize-y`}
+            />
+          </FormField>
+          <FormField icon={Paperclip} label={t('cases.suspensionFile')}>
+            <FileDropField id="portalStewardRevokeFile" onFile={setAttachment} disabled={saving} />
+          </FormField>
+          <div className="flex flex-wrap justify-end gap-2 pt-2">
+            <Button type="button" variant="ghost" disabled={saving} onClick={onClose}>
+              <X className="size-4" aria-hidden />
+              {t('common.cancel')}
+            </Button>
+            <Button type="submit" variant="danger" disabled={saving || !reason.trim()}>
+              <Ban className="size-4" aria-hidden />
+              {t('cases.stewardship.revokeAction')}
+            </Button>
+          </div>
+        </AppForm>
+      </section>
+    </div>,
+    document.body,
   )
 }
 
@@ -2093,16 +3483,69 @@ function MetaBadge({ icon: Icon, label, value }: { icon: LucideIcon; label: stri
   )
 }
 
+function PortalHostLicenseInfo({ host }: { host: CaseDetail['host'] }) {
+  const { t } = useTranslation()
+  return (
+    <div className="space-y-4">
+      <FormSectionTitle icon={BadgeCheck} className="mb-0">
+        {t('cases.stewardship.hostInfoTitle')}
+      </FormSectionTitle>
+      <div className="grid gap-2 sm:grid-cols-2 sm:gap-3">
+        <FormFactTile
+          icon={BadgeCheck}
+          label={t('cases.stewardship.hostLicense')}
+          copyValue={host?.licenseNumber ?? null}
+          tone="teal"
+        />
+        <FormFactTile
+          icon={Building2}
+          label={t('cases.stewardship.hostActivityTitle')}
+          value={host?.businessUnitTitle ?? undefined}
+          tone="mint"
+        />
+      </div>
+      <div className="grid gap-2 sm:grid-cols-3 sm:gap-3">
+        <FormFactTile
+          icon={FolderKanban}
+          label={t('cases.activityGroup')}
+          value={host?.jobGroupTitle ?? undefined}
+          tone="teal"
+        />
+        <FormFactTile
+          icon={Briefcase}
+          label={t('cases.activityJob')}
+          value={host?.jobTitle ?? undefined}
+          tone="mint"
+        />
+        <FormFactTile
+          icon={Layers}
+          label={t('cases.activityType')}
+          value={host?.jobTypeTitle ?? undefined}
+        />
+      </div>
+      <div className="grid gap-2 sm:grid-cols-3 sm:gap-3">
+        <FormFactTile icon={UserRound} label={t('auth.firstName')} value={host?.firstName ?? undefined} tone="teal" />
+        <FormFactTile icon={UserRound} label={t('auth.lastName')} value={host?.lastName ?? undefined} tone="mint" />
+        <FormFactTile icon={Phone} label={t('cases.stewardship.hostPhone')} copyValue={host?.phone ?? null} />
+      </div>
+    </div>
+  )
+}
+
+const caseQuickActionClassName = '!h-8 !gap-1 !rounded-xl !px-2.5 !py-1 !text-xs [&_svg]:size-3.5'
+
 function CountIndicator({
   count,
   label,
   icon: Icon,
   tone,
+  onClick,
 }: {
   count: number
   label: string
   icon: LucideIcon
   tone: 'orange' | 'amber'
+  onClick?: () => void
 }) {
   const color = tone === 'orange'
     ? {
@@ -2110,20 +3553,21 @@ function CountIndicator({
         circle: 'bg-orange-50 ring-orange-200',
         number: 'text-orange-800',
         icon: 'text-orange-600',
+        hover: 'hover:bg-orange-50 focus-visible:ring-orange-300',
       }
     : {
         ring: 'ring-amber-200',
         circle: 'bg-amber-50 ring-amber-200',
         number: 'text-amber-900',
         icon: 'text-amber-600',
+        hover: 'hover:bg-amber-50 focus-visible:ring-amber-300',
       }
   const text = formatNumber(count)
-  return (
-    <div
-      className={`flex items-center gap-2 rounded-2xl bg-white/80 px-2.5 py-1.5 ring-1 ${color.ring}`}
-      role="img"
-      aria-label={`${label}: ${text}`}
-    >
+  const className = `flex items-center gap-2 rounded-2xl bg-white/80 px-2.5 py-1.5 ring-1 ${color.ring}${
+    onClick ? ` cursor-pointer transition focus-visible:outline-none focus-visible:ring-2 ${color.hover}` : ''
+  }`
+  const body = (
+    <>
       <span className={`flex size-[3.25rem] shrink-0 items-center justify-center rounded-full ring-[5px] ${color.circle}`}>
         <span className={`text-sm font-semibold leading-none ${color.number}`}>{text}</span>
       </span>
@@ -2131,6 +3575,555 @@ function CountIndicator({
         <Icon className={`size-3.5 ${color.icon}`} aria-hidden />
         <span className="text-[11px] font-medium leading-4 text-ink-500">{label}</span>
       </span>
+    </>
+  )
+  if (!onClick) {
+    return (
+      <div className={className} role="img" aria-label={`${label}: ${text}`}>
+        {body}
+      </div>
+    )
+  }
+  return (
+    <button type="button" onClick={onClick} className={className} aria-label={`${label}: ${text}`}>
+      {body}
+    </button>
+  )
+}
+
+function ActiveSuspensionNotice({ suspension }: { suspension: CaseSuspension }) {
+  const { t } = useTranslation()
+  return (
+    <div className="mb-4 overflow-hidden rounded-2xl bg-white shadow-[0_8px_20px_rgba(217,119,6,0.1)] ring-1 ring-amber-200">
+      <div className="flex items-center gap-2 bg-gradient-to-e from-amber-500 to-orange-400 px-4 py-2.5 text-white">
+        <CirclePause className="size-4 shrink-0" aria-hidden />
+        <p className="text-sm font-semibold">{t('cases.suspensionActive')}</p>
+      </div>
+      <div className="grid gap-2 p-3 sm:grid-cols-2">
+        <div className="rounded-2xl bg-amber-50 px-3 py-2 ring-1 ring-amber-100">
+          <p className="inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-800/80">
+            <CalendarDays className="size-3.5" aria-hidden />
+            {t('cases.suspendStartsAt')}
+          </p>
+          <p className="mt-0.5 text-sm font-semibold text-ink-900">{formatDate(suspension.startsAt)}</p>
+        </div>
+        <div className="rounded-2xl bg-amber-50 px-3 py-2 ring-1 ring-amber-100">
+          <p className="inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-800/80">
+            <CalendarClock className="size-3.5" aria-hidden />
+            {t('cases.suspendEndsAt')}
+          </p>
+          <p className="mt-0.5 text-sm font-semibold text-ink-900">{formatDate(suspension.endsAt)}</p>
+        </div>
+      </div>
+      <div className="mx-3 mb-3 rounded-2xl bg-cream-50 px-3 py-2.5 ring-1 ring-amber-100">
+        <p className="inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-800/80">
+          <MessageSquareText className="size-3.5" aria-hidden />
+          {t('cases.suspendReason')}
+        </p>
+        <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-ink-900">{suspension.reason}</p>
+      </div>
+    </div>
+  )
+}
+
+function useRecordDialog(onClose: () => void) {
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.repeat) return
+      event.preventDefault()
+      event.stopPropagation()
+      onCloseRef.current()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [])
+}
+
+function violationStatusLabel(status: string, translate: (key: string) => string) {
+  const key = `violationStatuses.${status}`
+  const translated = translate(key)
+  return translated === key ? status : translated
+}
+
+function PersonViolationsModal({
+  caseId,
+  name,
+  onClose,
+}: {
+  caseId: string
+  name: string
+  onClose: () => void
+}) {
+  const { t } = useTranslation()
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const query = useQuery({
+    queryKey: ['case-violations', caseId],
+    queryFn: () => portalApi.get<PortalViolation[]>(`/cases/${caseId}/violations`).then(({ data }) => data),
+  })
+  const detail = useQuery({
+    queryKey: ['case-violation', caseId, selectedId],
+    enabled: Boolean(selectedId),
+    queryFn: () => portalApi.get<PortalViolation>(`/cases/${caseId}/violations/${selectedId}`).then(({ data }) => data),
+  })
+  const items = query.data ?? []
+  useRecordDialog(() => {
+    if (selectedId) setSelectedId(null)
+    else onClose()
+  })
+  const selected = detail.data
+
+  return createPortal(
+    <>
+      <div className="fixed inset-0 z-[80] flex items-start justify-center bg-ink-900/30 p-4 pt-[10vh]" data-nested-dialog>
+        <button type="button" className="absolute inset-0 cursor-default" aria-label={t('common.close')} onClick={onClose} />
+        <section
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="case-person-violations-title"
+          className="relative z-10 flex max-h-[min(44rem,88dvh)] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-line bg-white shadow-xl"
+        >
+          <header className="relative shrink-0 overflow-hidden bg-gradient-to-e from-orange-50 via-white to-amber-50 px-5 py-4">
+            <div className="relative flex items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-orange-500 text-white shadow-[0_8px_16px_rgba(234,88,12,0.28)]">
+                  <ShieldAlert className="size-5" aria-hidden />
+                </span>
+                <h2 id="case-person-violations-title" className="truncate text-sm font-semibold text-ink-900">
+                  {t('cases.personViolations', { name: name || t('cases.details') })}
+                </h2>
+              </div>
+              <button type="button" className="cursor-pointer rounded-xl p-2 text-ink-500 hover:bg-white" onClick={onClose} aria-label={t('common.close')}>
+                <X className="size-4" aria-hidden />
+              </button>
+            </div>
+          </header>
+          <div className="min-h-0 flex-1 overflow-y-auto p-3">
+            {query.isLoading ? <LoadingState /> : null}
+            {query.isError ? <p className="px-2 py-6 text-center text-sm text-red-700">{getApiErrorMessage(query.error, t('app.error'))}</p> : null}
+            {!query.isLoading && !query.isError && items.length === 0 ? <EmptyState icon={ShieldAlert} text={t('violations.empty')} /> : null}
+            <ul className="space-y-2">
+              {items.map((item) => (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedId(item.id)}
+                    className="flex w-full cursor-pointer items-start gap-3 rounded-2xl border border-orange-100 bg-white px-3 py-3 text-start transition hover:border-orange-300 hover:bg-orange-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300"
+                  >
+                    <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-orange-600">
+                      <ShieldAlert className="size-4" aria-hidden />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center justify-between gap-2">
+                        <span className="min-w-0 truncate text-sm font-medium text-ink-900">{item.violationType.title}</span>
+                        <span className="shrink-0 rounded-full bg-orange-50 px-2 py-0.5 text-xs font-medium text-orange-800 ring-1 ring-orange-200">
+                          {violationStatusLabel(item.status, t)}
+                        </span>
+                      </span>
+                      <span className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-500">
+                        <span className="inline-flex items-center gap-1">
+                          <CalendarDays className="size-3.5 shrink-0 text-orange-500" aria-hidden />
+                          {formatDate(item.occurredAt)}
+                        </span>
+                        {item.caseFile?.businessUnitTitle ? (
+                          <span className="inline-flex min-w-0 items-center gap-1">
+                            <Store className="size-3.5 shrink-0 text-orange-500" aria-hidden />
+                            <span className="truncate">{item.caseFile.businessUnitTitle}</span>
+                          </span>
+                        ) : null}
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+      </div>
+      {selectedId ? (
+        <div className="fixed inset-0 z-[90] flex items-start justify-center bg-ink-900/40 p-4 pt-[8vh]" data-nested-dialog>
+          <button type="button" className="absolute inset-0 cursor-default" aria-label={t('common.close')} onClick={() => setSelectedId(null)} />
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="case-violation-detail-title"
+            className="relative z-10 flex max-h-[min(52rem,92dvh)] w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-line bg-white shadow-xl"
+          >
+            <header className="relative shrink-0 overflow-hidden bg-gradient-to-e from-orange-50 via-white to-amber-50 px-5 py-4">
+              <div className="relative flex items-center justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-orange-500 text-white shadow-[0_8px_16px_rgba(234,88,12,0.28)]">
+                    <ShieldAlert className="size-5" aria-hidden />
+                  </span>
+                  <h2 id="case-violation-detail-title" className="truncate text-sm font-semibold text-ink-900">
+                    {t('violations.details')}
+                  </h2>
+                </div>
+                <button type="button" className="cursor-pointer rounded-xl p-2 text-ink-500 hover:bg-white" onClick={() => setSelectedId(null)} aria-label={t('common.close')}>
+                  <X className="size-4" aria-hidden />
+                </button>
+              </div>
+            </header>
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-5">
+              {detail.isLoading ? <LoadingState /> : null}
+              {detail.isError ? <p className="text-center text-sm text-red-700">{getApiErrorMessage(detail.error, t('app.error'))}</p> : null}
+              {selected ? (
+                <>
+                  <FormSectionTitle icon={ShieldAlert} className="mb-0">
+                    {selected.violationType.title}
+                  </FormSectionTitle>
+                  <div className="grid gap-2 sm:grid-cols-2 sm:gap-3">
+                    <FormFactTile icon={Tag} label={t('violations.violationType')} value={selected.violationType.title} tone="teal" />
+                    <FormFactTile icon={ShieldAlert} label={t('violations.status')} value={violationStatusLabel(selected.status, t)} tone="mint" />
+                    <FormFactTile icon={CalendarDays} label={t('violations.occurredAt')} value={formatDate(selected.occurredAt)} tone="teal" />
+                    <FormFactTile icon={UserRound} label={t('violations.personName')} value={name} tone="mint" />
+                    <FormFactTile icon={IdCard} label={t('violations.nationalId')} copyValue={selected.nationalId} tone="teal" />
+                    <FormFactTile
+                      icon={Store}
+                      label={t('cases.unitTitle')}
+                      value={selected.caseFile?.businessUnitTitle || undefined}
+                      tone="mint"
+                    />
+                    <FormFactTile
+                      icon={FileText}
+                      label={t('violations.description')}
+                      value={selected.description?.trim() || undefined}
+                      className="sm:col-span-2"
+                    />
+                  </div>
+                  <ViolationAttachmentMedia
+                    hrefFor={(attachmentId) => `/cases/${caseId}/violations/${selected.id}/attachments/${attachmentId}`}
+                    items={selected.attachments}
+                  />
+                </>
+              ) : null}
+            </div>
+          </section>
+        </div>
+      ) : null}
+    </>,
+    document.body,
+  )
+}
+
+const RECORD_IMAGE_NAME = /\.(jpe?g|png|gif|webp|bmp)$/i
+const RECORD_AUDIO_NAME = /\.(webm|ogg|mp3|m4a|wav|aac)$/i
+
+function isRecordImage(item: { kind?: string; mimeType?: string | null; originalName?: string | null }) {
+  if (item.kind === 'IMAGE') return true
+  if (item.mimeType?.toLowerCase().startsWith('image/')) return true
+  return RECORD_IMAGE_NAME.test(item.originalName ?? '')
+}
+
+function isRecordAudio(item: { mimeType?: string | null; originalName?: string | null }) {
+  if (item.mimeType?.toLowerCase().startsWith('audio/')) return true
+  return RECORD_AUDIO_NAME.test(item.originalName ?? '')
+}
+
+function usePortalObjectUrl(href: string | null) {
+  const [src, setSrc] = useState<string>()
+  useEffect(() => {
+    if (!href) {
+      setSrc(undefined)
+      return
+    }
+    let objectUrl: string | undefined
+    let cancelled = false
+    void portalApi
+      .get<Blob>(href, { responseType: 'blob' })
+      .then((response) => {
+        if (cancelled) return
+        const header = String(response.headers['content-type'] ?? '')
+        const mime = header.split(';')[0].trim() || response.data.type || 'application/octet-stream'
+        const blob =
+          response.data.type && response.data.type.split(';')[0] === mime
+            ? response.data
+            : new Blob([response.data], { type: mime })
+        objectUrl = URL.createObjectURL(blob)
+        setSrc(objectUrl)
+      })
+      .catch(() => {
+        if (!cancelled) setSrc(undefined)
+      })
+    return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [href])
+  return src
+}
+
+async function openPortalFile(href: string) {
+  const { data } = await portalApi.get<Blob>(href, { responseType: 'blob' })
+  const objectUrl = URL.createObjectURL(data)
+  window.open(objectUrl, '_blank', 'noopener')
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000)
+}
+
+function ViolationAttachmentMedia({
+  hrefFor,
+  items,
+}: {
+  hrefFor: (attachmentId: string) => string
+  items: PortalViolationAttachment[]
+}) {
+  const { t } = useTranslation()
+  const images = items.filter(isRecordImage)
+  const audios = items.filter((item) => !isRecordImage(item) && isRecordAudio(item))
+  const others = items.filter((item) => !isRecordImage(item) && !isRecordAudio(item))
+  if (!items.length) return null
+  return (
+    <div className="space-y-3">
+      <FormSectionTitle icon={Paperclip} className="mb-0">
+        {t('violations.attachments')}
+      </FormSectionTitle>
+      {images.map((item) => (
+        <RecordImage
+          key={item.id}
+          href={hrefFor(item.id)}
+          name={item.originalName || t('violations.attachments')}
+        />
+      ))}
+      {audios.map((item) => (
+        <RecordAudio
+          key={item.id}
+          href={hrefFor(item.id)}
+          label={item.originalName || t('violations.attachmentVoice')}
+        />
+      ))}
+      {others.map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          className="flex w-full cursor-pointer items-center gap-2 rounded-2xl bg-orange-50/70 px-3 py-2 text-start text-sm text-orange-900"
+          onClick={() => {
+            openPortalFile(hrefFor(item.id)).catch((error) => {
+              toast.error(getApiErrorMessage(error, t('app.error')))
+            })
+          }}
+        >
+          <Paperclip className="size-4 shrink-0" aria-hidden />
+          <span className="min-w-0 truncate">{item.originalName || t('violations.openAttachment')}</span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function RecordImage({ href, name }: { href: string; name: string }) {
+  const src = usePortalObjectUrl(href)
+  if (!src) return <div className="h-36 animate-pulse rounded-2xl bg-orange-50" aria-hidden />
+  return <img src={src} alt={name} className="max-h-[28rem] w-full rounded-2xl bg-orange-50 object-contain" />
+}
+
+function RecordAudio({ href, label }: { href: string; label: string }) {
+  const src = usePortalObjectUrl(href)
+  return (
+    <div className="space-y-1 rounded-2xl bg-orange-50/70 px-3 py-2">
+      <p className="flex min-w-0 items-center gap-1.5 truncate text-xs text-ink-600">
+        <Mic className="size-3.5 shrink-0 text-orange-600" aria-hidden />
+        <span className="truncate">{label}</span>
+      </p>
+      {src ? <audio src={src} controls preload="metadata" className="h-10 w-full" dir="ltr" /> : <div className="h-10 animate-pulse rounded-xl bg-white" aria-hidden />}
+    </div>
+  )
+}
+
+function CaseSuspensionsDialog({
+  caseId,
+  name,
+  items,
+  onClose,
+}: {
+  caseId: string
+  name: string
+  items: CaseSuspension[]
+  onClose: () => void
+}) {
+  const { t } = useTranslation()
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const selected = items.find((item) => item.id === selectedId) ?? null
+  useRecordDialog(() => {
+    if (selectedId) setSelectedId(null)
+    else onClose()
+  })
+
+  return createPortal(
+    <>
+      <div className="fixed inset-0 z-[80] flex items-start justify-center bg-ink-900/30 p-4 pt-[10vh]" data-nested-dialog>
+        <button type="button" className="absolute inset-0 cursor-default" aria-label={t('common.close')} onClick={onClose} />
+        <section
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="case-suspensions-title"
+          className="relative z-10 flex max-h-[min(44rem,88dvh)] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-line bg-white shadow-xl"
+        >
+          <header className="relative shrink-0 overflow-hidden bg-gradient-to-e from-amber-50 via-white to-orange-50 px-5 py-4">
+            <div className="relative flex items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-amber-500 text-white shadow-[0_8px_16px_rgba(217,119,6,0.28)]">
+                  <CirclePause className="size-5" aria-hidden />
+                </span>
+                <h2 id="case-suspensions-title" className="truncate text-sm font-semibold text-ink-900">
+                  {t('cases.personSuspensions', { name: name || t('cases.details') })}
+                </h2>
+              </div>
+              <button type="button" className="cursor-pointer rounded-xl p-2 text-ink-500 hover:bg-white" onClick={onClose} aria-label={t('common.close')}>
+                <X className="size-4" aria-hidden />
+              </button>
+            </div>
+          </header>
+          <div className="min-h-0 flex-1 overflow-y-auto p-3">
+            {items.length === 0 ? <EmptyState icon={CirclePause} text={t('cases.suspensionsEmpty')} /> : null}
+            <ul className="space-y-2">
+              {items.map((item) => (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedId(item.id)}
+                    className="flex w-full cursor-pointer items-start gap-3 rounded-2xl border border-amber-100 bg-white px-3 py-3 text-start transition hover:border-amber-300 hover:bg-amber-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
+                  >
+                    <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-700">
+                      <CirclePause className="size-4" aria-hidden />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center justify-between gap-2">
+                        <span className="min-w-0 truncate text-sm font-medium text-ink-900">{item.reason}</span>
+                        <SuspensionState item={item} />
+                      </span>
+                      <span className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-500">
+                        <span className="inline-flex items-center gap-1">
+                          <CalendarDays className="size-3.5 shrink-0 text-amber-600" aria-hidden />
+                          {formatDate(item.startsAt)}
+                        </span>
+                        <span aria-hidden>—</span>
+                        <span className="inline-flex items-center gap-1">
+                          <CalendarClock className="size-3.5 shrink-0 text-amber-600" aria-hidden />
+                          {formatDate(item.endsAt)}
+                        </span>
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+      </div>
+      {selected ? (
+        <div className="fixed inset-0 z-[90] flex items-start justify-center bg-ink-900/40 p-4 pt-[8vh]" data-nested-dialog>
+          <button type="button" className="absolute inset-0 cursor-default" aria-label={t('common.close')} onClick={() => setSelectedId(null)} />
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="case-suspension-detail-title"
+            className="relative z-10 flex max-h-[min(52rem,92dvh)] w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-line bg-white shadow-xl"
+          >
+            <header className="relative shrink-0 overflow-hidden bg-gradient-to-e from-amber-50 via-white to-orange-50 px-5 py-4">
+              <div className="relative flex items-center justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-amber-500 text-white shadow-[0_8px_16px_rgba(217,119,6,0.28)]">
+                    <CirclePause className="size-5" aria-hidden />
+                  </span>
+                  <h2 id="case-suspension-detail-title" className="truncate text-sm font-semibold text-ink-900">
+                    {t('cases.suspendTitle')}
+                  </h2>
+                </div>
+                <button type="button" className="cursor-pointer rounded-xl p-2 text-ink-500 hover:bg-white" onClick={() => setSelectedId(null)} aria-label={t('common.close')}>
+                  <X className="size-4" aria-hidden />
+                </button>
+              </div>
+            </header>
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-5">
+              <FormSectionTitle icon={CirclePause} className="mb-0" action={<SuspensionState item={selected} />}>
+                {t('cases.suspendTitle')}
+              </FormSectionTitle>
+              <div className="grid gap-2 sm:grid-cols-2 sm:gap-3">
+                <FormFactTile icon={CalendarDays} label={t('cases.suspendStartsAt')} value={formatDate(selected.startsAt)} tone="teal" />
+                <FormFactTile icon={CalendarClock} label={t('cases.suspendEndsAt')} value={formatDate(selected.endsAt)} tone="mint" />
+                <FormFactTile icon={MessageSquareText} label={t('cases.suspendReason')} value={selected.reason} className="sm:col-span-2" />
+                {selected.liftNote ? (
+                  <FormFactTile icon={CirclePlay} label={t('cases.liftNote')} value={selected.liftNote} tone="mint" className="sm:col-span-2" />
+                ) : null}
+              </div>
+              {selected.files.length ? (
+                <div className="space-y-3">
+                  <FormSectionTitle icon={Paperclip} className="mb-0">
+                    {t('cases.suspensionFile')}
+                  </FormSectionTitle>
+                  <SuspensionFiles caseId={caseId} files={selected.files} />
+                </div>
+              ) : null}
+            </div>
+          </section>
+        </div>
+      ) : null}
+    </>,
+    document.body,
+  )
+}
+
+function SuspensionState({ item }: { item: CaseSuspension }) {
+  const { t } = useTranslation()
+  return (
+    <span
+      className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${
+        item.active ? 'bg-amber-50 text-amber-900 ring-amber-200' : 'bg-cream-50 text-ink-600 ring-line'
+      }`}
+    >
+      {item.active ? t('cases.suspensionActive') : t('cases.suspensionEnded')}
+    </span>
+  )
+}
+
+function SuspensionFiles({ caseId, files }: { caseId: string; files: CaseSuspension['files'] }) {
+  return (
+    <div className="space-y-3">
+      {files.map((file) => (
+        <SuspensionFilePreview key={file.id} caseId={caseId} file={file} />
+      ))}
+    </div>
+  )
+}
+
+function SuspensionFilePreview({ caseId, file }: { caseId: string; file: CaseSuspension['files'][number] }) {
+  const { t } = useTranslation()
+  const href = `/cases/${caseId}/suspensions/files/${file.id}`
+  const image = isRecordImage(file)
+  const audio = !image && isRecordAudio(file)
+  const src = usePortalObjectUrl(image || audio ? href : null)
+  const label = file.originalName || t('cases.inquiryAttachment')
+  return (
+    <div className="space-y-2 rounded-2xl bg-cream-50 px-3 py-3 ring-1 ring-line">
+      <button
+        type="button"
+        className="flex w-full cursor-pointer items-center gap-2 text-start text-sm text-teal-800"
+        onClick={() => {
+          openPortalFile(href).catch((error) => {
+            toast.error(getApiErrorMessage(error, t('app.error')))
+          })
+        }}
+      >
+        <Paperclip className="size-4 shrink-0" aria-hidden />
+        <span className="min-w-0">
+          <span className="mb-0.5 block text-xs text-ink-500">
+            {file.kind === 'LIFT' ? t('cases.liftFile') : t('cases.suspensionFile')}
+          </span>
+          <span className="block truncate">{label}</span>
+        </span>
+      </button>
+      {image ? (
+        src ? <img src={src} alt={label} className="max-h-[28rem] w-full rounded-2xl bg-white object-contain" /> : <div className="h-36 animate-pulse rounded-2xl bg-white" aria-hidden />
+      ) : null}
+      {audio ? (
+        src ? <audio src={src} controls preload="metadata" className="h-10 w-full" dir="ltr" /> : <div className="h-10 animate-pulse rounded-xl bg-white" aria-hidden />
+      ) : null}
     </div>
   )
 }
@@ -2194,13 +4187,24 @@ function RemainingDaysBadge({
   )
 }
 
-function OperationTile({ icon: Icon, label, disabled }: { icon: LucideIcon; label: string; disabled: boolean }) {
+function OperationTile({
+  icon: Icon,
+  label,
+  disabled,
+  onClick,
+}: {
+  icon: LucideIcon
+  label: string
+  disabled: boolean
+  onClick?: () => void
+}) {
   const { t } = useTranslation()
   return (
     <button
       type="button"
       disabled={disabled}
       title={disabled ? t('cases.future') : undefined}
+      onClick={disabled ? undefined : onClick}
       className="inline-flex cursor-pointer items-center gap-2 rounded-2xl border border-teal-200 bg-white px-3 py-2 text-sm font-medium text-ink-800 shadow-[0_3px_10px_rgba(46,189,182,0.12)] transition hover:border-teal-400 hover:bg-teal-50 focus-visible:ring-2 focus-visible:ring-teal-300 disabled:cursor-not-allowed disabled:opacity-55 disabled:hover:border-teal-200 disabled:hover:bg-white"
     >
       <span className="flex size-7 shrink-0 items-center justify-center rounded-xl bg-teal-50 text-teal-600">
@@ -2218,6 +4222,56 @@ function RequestPill({ children, className = 'bg-teal-50 text-teal-900 ring-teal
 function requestTypeLabel(type: string, translate: (key: string) => string) {
   const translated = translate(`cases.requestTypes.${type}`)
   return translated === `cases.requestTypes.${type}` ? type : translated
+}
+
+function requestAwaitingIntake(type: string, formationStep: number, intakeSubmittedAt?: string | null) {
+  if (!intakeSubmittedAt) return false
+  const kind = requestTypeOf(type)
+  if (kind === 'ISSUANCE') return formationStep < 3
+  if (kind === 'AUCTION') return formationStep < 1
+  return formationStep < 2
+}
+
+function requestCurrentStepLabel(type: string, formationStep: number, translate: (key: string) => string) {
+  const step = Math.max(formationStep, 0)
+  const kind = requestTypeOf(type)
+  if (kind === 'ISSUANCE') return translate(`cases.steps.${FORMATION_STEPS[step] ?? FORMATION_STEPS[0]}`)
+  if (kind === 'STEWARDSHIP') return translate(`cases.steps.${STEWARDSHIP_STEPS[step] ?? STEWARDSHIP_STEPS[0]}`)
+  if (kind === 'RENEWAL') return translate(`cases.renewalSteps.${RENEWAL_STEPS[step] ?? RENEWAL_STEPS[0]}`)
+  if (kind === 'LOCATION_CHANGE') return translate(`cases.locationSteps.${LOCATION_STEPS[step] ?? LOCATION_STEPS[0]}`)
+  if (kind === 'AUCTION') return translate(`cases.auction.wizardSteps.${AUCTION_STEPS[step] ?? AUCTION_STEPS[0]}`)
+  return null
+}
+
+function requestTypeOf(type: string) {
+  return type.trim().toUpperCase()
+}
+
+function caseRequestViewTo(
+  caseId: string,
+  request: Pick<CaseRequest, 'id' | 'type' | 'status'>,
+  item: Pick<CaseDetail, 'cardNumber'>,
+) {
+  const kind = requestTypeOf(request.type)
+  if (kind === 'ISSUANCE') return `/issuance/${caseId}`
+  if (kind === 'AUCTION') return `/cases/${caseId}/auction/${request.id}`
+  if (kind === 'RENEWAL') return `/cases/${caseId}/renewal/${request.id}`
+  if (kind === 'LOCATION_CHANGE') return `/cases/${caseId}/location-change/${request.id}`
+  if (kind === 'STEWARDSHIP') {
+    if (item.cardNumber && request.status !== 'OPEN') {
+      return `/cases/${caseId}/stewardship/card`
+    }
+    if (request.status === 'OPEN') {
+      return `/cases/${caseId}/stewardship`
+    }
+    return `/cases/${caseId}/dossier`
+  }
+  return null
+}
+
+function canOpenRenewal(item: CaseDetail) {
+  if (item.kind === 'STEWARDSHIP' || item.status === 'REVOKED') return false
+  return Boolean(item.licenseNumber) || item.requests.some((request) => requestTypeOf(request.type) === 'RENEWAL')
 }
 
 const DOSSIER_TABS = ['identity', 'activity', 'location', 'documents'] as const
@@ -2306,7 +4360,7 @@ function CaseDossierPage() {
           </div>
         </FormCard>
       ) : null}
-      {item && !steward ? <DossierStewards items={item.stewards} /> : null}
+      {item && !steward ? <DossierStewards hostCaseId={caseId} items={item.stewards} /> : null}
     </div>
   )
 }
@@ -2316,7 +4370,7 @@ function StewardKindBadge() {
   return (
     <span className="inline-flex items-center gap-1.5 rounded-full bg-mint-500 px-2.5 py-1 text-xs font-semibold text-white shadow-[0_4px_10px_rgba(63,214,190,0.28)]">
       <IdCard className="size-3.5 shrink-0" aria-hidden />
-      {t('cases.stewardKind')}
+      {t('cases.stewardship.kind')}
     </span>
   )
 }
@@ -2333,8 +4387,17 @@ function DossierSummary({ item }: { item: PortalDossier }) {
           <div className="flex items-center justify-center rounded-2xl border border-mint-100 bg-gradient-to-b from-mint-50 to-white px-3 py-3">
             <DossierRemainingRing issuedAt={item.cardIssuedAt} expiresAt={item.cardExpiresAt} />
           </div>
-          <FormFactTile icon={CalendarDays} label={t('cases.cardIssued')} value={item.cardIssuedAt ? formatDate(item.cardIssuedAt) : undefined} />
-          <FormFactTile icon={CalendarDays} label={t('cases.cardExpires')} value={item.cardExpiresAt ? formatDate(item.cardExpiresAt) : undefined} tone="mint" />
+          <FormFactTile
+            icon={CalendarDays}
+            label={t('cases.stewardship.cardIssued')}
+            value={item.cardIssuedAt ? formatDate(item.cardIssuedAt) : undefined}
+          />
+          <FormFactTile
+            icon={CalendarDays}
+            label={t('cases.stewardship.cardExpires')}
+            value={item.cardExpiresAt ? formatDate(item.cardExpiresAt) : undefined}
+            tone="mint"
+          />
         </>
       ) : (
         <>
@@ -2741,64 +4804,14 @@ function DossierDocumentCard({ item }: { item: PortalDossierDocument }) {
   )
 }
 
-function DossierStewards({ items }: { items: PortalDossier['stewards'] }) {
+function DossierStewards({ hostCaseId, items }: { hostCaseId: string; items: PortalDossier['stewards'] }) {
   const { t } = useTranslation()
   if (items.length === 0) return null
   return (
     <div className="mt-4">
       <FormCard icon={IdCard} title={t('cases.stewardsTitle')}>
         <div className="p-5 sm:p-6">
-          <div className="overflow-x-auto rounded-2xl border border-line">
-            <table className="w-full min-w-[720px] text-sm">
-              <thead className="bg-cream-50 text-ink-700">
-                <tr>
-                  <th className="px-4 py-3 text-start font-medium">{t('account.fullName')}</th>
-                  <th className="px-4 py-3 text-start font-medium">{t('account.nationalId')}</th>
-                  <th className="px-4 py-3 text-start font-medium">{t('cases.cardNumber')}</th>
-                  <th className="px-4 py-3 text-start font-medium">{t('cases.cardIssuedOn')}</th>
-                  <th className="px-4 py-3 text-start font-medium">{t('cases.cardExpiresOn')}</th>
-                  <th className="px-4 py-3 text-start font-medium">{t('cases.listStep')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((row) => {
-                  const revoked = row.status === 'REVOKED'
-                  const active = Boolean(row.cardNumber) && !revoked && row.requestStatus !== 'OPEN'
-                  const label = revoked ? t('cases.stewardRevoked') : active ? t('cases.stewardActive') : t('cases.stewardReviewing')
-                  const badge = revoked
-                    ? 'bg-red-50 text-red-700 ring-red-200'
-                    : active
-                      ? 'bg-mint-50 text-teal-900 ring-mint-200'
-                      : 'bg-amber-50 text-amber-900 ring-amber-200'
-                  return (
-                    <tr key={row.id} className="border-t border-line">
-                      <td className="px-4 py-3">
-                        <span className="inline-flex items-center gap-2">
-                          <UserRound className="size-4 text-teal-600" aria-hidden />
-                          {row.fullName || '—'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        {row.nationalId ? (
-                          <span className="inline-flex items-center rounded-full bg-teal-50 px-2.5 py-0.5 text-xs font-medium text-teal-900 ring-1 ring-teal-200">
-                            {localizeDigits(row.nationalId)}
-                          </span>
-                        ) : (
-                          '—'
-                        )}
-                      </td>
-                      <td className="px-4 py-3">{row.cardNumber ? localizeDigits(row.cardNumber) : row.requestNumber ? localizeDigits(row.requestNumber) : '—'}</td>
-                      <td className="px-4 py-3">{row.cardIssuedAt ? formatDate(row.cardIssuedAt) : '—'}</td>
-                      <td className="px-4 py-3">{row.cardExpiresAt ? formatDate(row.cardExpiresAt) : '—'}</td>
-                      <td className="px-4 py-3">
-                        <span className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ring-1 ${badge}`}>{label}</span>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+          <LicenseStewardsTable hostCaseId={hostCaseId} items={items} />
         </div>
       </FormCard>
     </div>
@@ -2818,6 +4831,7 @@ function issuedLicense(item: PortalLicense): ActivityLicense | null {
     lastNameEn: item.lastNameEn,
     gender: item.gender,
     birthDate: item.birthDate,
+    nationalityIso2: item.nationalityIso2,
     nationalityFa: item.nationalityFa,
     nationalityEn: item.nationalityEn,
     passportNumber: item.passportNumber,
@@ -2826,6 +4840,9 @@ function issuedLicense(item: PortalLicense): ActivityLicense | null {
     activityTitle: item.activityTitle,
     activityTitleEn: item.activityTitleEn,
     photoId: null,
+    signerName: item.signerName,
+    signerTitle: item.signerTitle,
+    signatureId: null,
     address: item.address,
     addressEn: item.addressEn,
     plaque: item.plaque,
@@ -2849,11 +4866,9 @@ async function accountPhotoDataUrl() {
   })
 }
 
-function CaseLicensePage() {
-  const { caseId = '' } = useParams()
+function IssuedLicenseView({ caseId, emptyText }: { caseId: string; emptyText?: string }) {
   const { t } = useTranslation()
   const { user } = useAuth()
-  const [busy, setBusy] = useState<'print' | 'download' | null>(null)
   const query = useQuery({
     queryKey: ['case-license', caseId],
     queryFn: () => portalApi.get<PortalLicense>(`/cases/${caseId}/license`).then(({ data }) => data),
@@ -2862,47 +4877,208 @@ function CaseLicensePage() {
   const item = query.data
   const license = item ? issuedLicense(item) : null
 
-  async function output(action: 'print' | 'download') {
-    if (!license) return
-    setBusy(action)
-    try {
-      const printPhoto = item?.hasPhoto ? await accountPhotoDataUrl() : null
-      const view = buildLicenseView(license, licenseCopy(t), printPhoto)
-      const html = activityLicenseHtml(view)
-      if (action === 'print') printActivityLicense(html)
-      else downloadActivityLicense(`${license.licenseNumber}.html`, html)
-    } catch (error) {
-      toast.error(getApiErrorMessage(error, t('cases.licenseFailed')))
-    } finally {
-      setBusy(null)
-    }
-  }
-
   if (query.isLoading) return <LoadingState />
   if (query.isError || !item) return <ErrorState error={query.error} />
-  const view = license ? buildLicenseView(license, licenseCopy(t), photoUrl) : null
+  if (!license) return <EmptyState icon={BadgeCheck} text={emptyText ?? t('cases.licenseNotIssued')} />
+  return (
+    <IssuedActivityLicense
+      license={license}
+      photoUrl={photoUrl}
+      signatureUrl={item.signatureDataUrl}
+      loadPrintPhoto={() => (item.hasPhoto ? accountPhotoDataUrl() : Promise.resolve(null))}
+      loadPrintSignature={() => Promise.resolve(item.signatureDataUrl)}
+      onError={(error) => toast.error(getApiErrorMessage(error, t('cases.licenseFailed')))}
+    />
+  )
+}
+
+function CaseLicensePage() {
+  const { caseId = '' } = useParams()
+  const { t } = useTranslation()
   return (
     <div className={shellClassName}>
       <div className="print:hidden">
         <PageHeader icon={BadgeCheck} title={t('cases.licenseTitle')} backTo={`/cases/${caseId}`} />
       </div>
-      {!view ? (
-        <EmptyState icon={BadgeCheck} text={t('cases.licenseNotIssued')} />
-      ) : (
+      <IssuedLicenseView caseId={caseId} />
+    </div>
+  )
+}
+
+function StewardCardHeaderBadge({ icon: Icon, children }: { icon: LucideIcon; children: ReactNode }) {
+  return (
+    <span className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-xs font-medium text-ink-800 shadow-[0_4px_10px_rgba(20,40,40,0.05)] ring-1 ring-teal-100">
+      <Icon className="size-3.5 shrink-0 text-teal-600" aria-hidden />
+      {children}
+    </span>
+  )
+}
+
+function CaseStewardCardPage() {
+  const { caseId = '' } = useParams()
+  const { t } = useTranslation()
+  const navigate = useNavigate()
+  const [stewardRevokeOpen, setStewardRevokeOpen] = useState(false)
+  const query = useQuery({
+    queryKey: ['case-stewardship', caseId],
+    enabled: Boolean(caseId),
+    queryFn: () => portalApi.get<PortalStewardshipCard>(`/cases/${caseId}/stewardship`).then(({ data }) => data),
+  })
+  const item = query.data
+  const holderName = item
+    ? `${item.person.firstName} ${item.person.lastName}`.replace(/\s+/g, ' ').trim() || item.person.fullName
+    : ''
+
+  useEffect(() => {
+    if (query.isError) return
+    if (item && query.isSuccess && !item.cardNumber) {
+      navigate(`/cases/${caseId}`, { replace: true })
+    }
+  }, [caseId, item, navigate, query.isError, query.isSuccess])
+
+  return (
+    <div className={shellClassName}>
+      <PageHeader
+        icon={IdCard}
+        title={t('cases.stewardship.cardTitle')}
+        subtitle={
+          item ? (
+            <span className="flex flex-wrap gap-1.5">
+              {holderName ? (
+                <StewardCardHeaderBadge icon={UserRound}>
+                  <span>{holderName}</span>
+                </StewardCardHeaderBadge>
+              ) : null}
+              {item.person.nationalId ? (
+                <StewardCardHeaderBadge icon={Fingerprint}>
+                  <span className="text-ink-500">{t('account.nationalId')}</span>
+                  <CopyableDigits value={item.person.nationalId} />
+                </StewardCardHeaderBadge>
+              ) : null}
+            </span>
+          ) : undefined
+        }
+        backTo={item?.viewerIsHolder === false && item.host?.id ? `/cases/${item.host.id}` : `/cases/${caseId}`}
+      />
+      {query.isLoading ? <LoadingState /> : null}
+      {query.isError ? <ErrorState error={query.error} /> : null}
+      {item && item.cardNumber ? (
         <div className="space-y-4">
-          <div className="flex flex-wrap gap-2 print:hidden">
-            <Button type="button" disabled={busy != null} onClick={() => void output('print')}>
-              <Printer className="size-4" aria-hidden />
-              {t('cases.licensePrint')}
-            </Button>
-            <Button type="button" variant="ghost" disabled={busy != null} onClick={() => void output('download')}>
-              <Download className="size-4" aria-hidden />
-              {t('cases.licenseDownload')}
-            </Button>
-          </div>
-          <ActivityLicenseSheet view={view} />
+          <FormCard
+            className={item.status === 'REVOKED' ? '!border-2 !border-red-200' : undefined}
+            icon={IdCard}
+            title={holderName || t('cases.stewardship.cardTitle')}
+            titleExtra={
+              item.cardNumber ? (
+                <span
+                  className="inline-flex max-w-full items-center gap-1.5 rounded-2xl bg-teal-50 px-3 py-1.5 text-sm font-medium text-teal-800"
+                  aria-label={t('cases.stewardship.cardNumber')}
+                >
+                  <IdCard className="size-4 shrink-0" aria-hidden />
+                  <CopyableDigits value={item.cardNumber} />
+                </span>
+              ) : undefined
+            }
+          >
+            <div className="grid gap-2 p-5 sm:grid-cols-2 sm:gap-3 sm:p-6">
+              <FormFactTile
+                icon={CalendarDays}
+                label={t('cases.stewardship.cardIssued')}
+                value={item.cardIssuedAt ? <DateText value={item.cardIssuedAt} /> : '—'}
+                tone="teal"
+              />
+              <FormFactTile
+                icon={CalendarDays}
+                label={t('cases.stewardship.cardExpires')}
+                value={item.cardExpiresAt ? <DateText value={item.cardExpiresAt} /> : '—'}
+                tone="mint"
+              />
+              <FormFactTile
+                icon={UserRound}
+                label={t('cases.stewardship.hostName')}
+                value={item.host?.firstName || '—'}
+                tone="teal"
+              />
+              <FormFactTile
+                icon={UserRound}
+                label={t('cases.stewardship.hostLastName')}
+                value={item.host?.lastName || '—'}
+              />
+              <FormFactTile
+                icon={BadgeCheck}
+                label={t('cases.stewardship.hostLicense')}
+                copyValue={item.host?.licenseNumber ?? null}
+                tone="mint"
+              />
+              <FormFactTile
+                icon={Building2}
+                label={t('cases.unitTitle')}
+                value={item.host?.businessUnitTitle || '—'}
+              />
+              <FormFactTile
+                icon={FolderKanban}
+                label={t('cases.activityGroup')}
+                value={item.host?.jobGroupTitle || '—'}
+                tone="mint"
+              />
+              <FormFactTile
+                icon={Briefcase}
+                label={t('cases.activityJob')}
+                value={item.host?.jobTitle || '—'}
+              />
+            </div>
+          </FormCard>
+          {item.status === 'REVOKED' ? (
+            <FormCard className="!border-2 !border-red-200" icon={Ban} title={t('cases.stewardship.revokeInfoTitle')}>
+              <div className="grid gap-2 p-5 sm:grid-cols-2 sm:gap-3 sm:p-6">
+                <FormFactTile
+                  icon={UserRound}
+                  label={t('cases.stewardship.revokedBy')}
+                  value={
+                    item.revokedBy
+                      ? `${item.revokedBy.firstName} ${item.revokedBy.lastName}`.replace(/\s+/g, ' ').trim() ||
+                        item.revokedBy.fullName
+                      : '—'
+                  }
+                  tone="teal"
+                />
+                <FormFactTile
+                  icon={CalendarClock}
+                  label={t('cases.stewardship.revokeRequestedAt')}
+                  value={item.revokeRequestedAt ? <DateText value={item.revokeRequestedAt} withTime /> : '—'}
+                />
+                <FormFactTile
+                  icon={CalendarDays}
+                  label={t('cases.stewardship.revokeOn')}
+                  value={item.revokedAt ? <DateText value={item.revokedAt} /> : '—'}
+                  tone="mint"
+                />
+                <FormFactTile
+                  icon={MessageSquareText}
+                  label={t('cases.stewardship.requestText')}
+                  value={item.revokeReason || '—'}
+                  className="sm:col-span-2"
+                />
+              </div>
+            </FormCard>
+          ) : null}
+          {item.status !== 'REVOKED' ? (
+            <div className="flex justify-center">
+              <Button type="button" variant="danger" onClick={() => setStewardRevokeOpen(true)}>
+                <Ban className="size-4" aria-hidden />
+                {t('cases.stewardship.revokeCard')}
+              </Button>
+            </div>
+          ) : null}
         </div>
-      )}
+      ) : null}
+      {stewardRevokeOpen ? (
+        <PortalStewardRevokeDialog
+          caseId={caseId}
+          hostCaseId={item?.viewerIsHolder === false ? item.host?.id : undefined}
+          onClose={() => setStewardRevokeOpen(false)}
+        />
+      ) : null}
     </div>
   )
 }
@@ -2963,7 +5139,6 @@ type FinanceData = {
 
 const headerChipClassName =
   'inline-flex max-w-full items-center gap-1.5 rounded-2xl bg-teal-50 px-3 py-1.5 text-sm font-medium text-teal-800'
-const actionsColClassName = 'w-px min-w-max whitespace-nowrap px-4 py-3'
 const pillClassName = 'inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium ring-1'
 
 const feeStatusStyles: Record<FeeStatus, { icon: LucideIcon; className: string }> = {
@@ -3367,6 +5542,8 @@ function FinancePage() {
   )
 }
 
+type AccountGeo = { id: string; nameFa: string }
+
 type Account = {
   id: string
   username: string
@@ -3381,7 +5558,21 @@ type Account = {
   homePhone: string | null
   gender: string | null
   birthDate: string | null
+  birthPlace: string | null
   personType: string | null
+  notes: string | null
+  telegram: string | null
+  bale: string | null
+  eitaa: string | null
+  whatsapp: string | null
+  otherSocial: string | null
+  vehiclePlates: string[]
+  countryId: string | null
+  provinceId: string | null
+  cityId: string | null
+  country: AccountGeo | null
+  province: AccountGeo | null
+  city: AccountGeo | null
   hasPhoto: boolean
 }
 
@@ -3403,6 +5594,11 @@ function AccountPage() {
   )
 }
 
+function withCurrentOption(options: SelectOption[], selectedId: string, current: AccountGeo | null) {
+  if (!current || selectedId !== current.id || options.some((option) => option.value === current.id)) return options
+  return [...options, { value: current.id, label: current.nameFa }]
+}
+
 function AccountEditor({ initial }: { initial: Account }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
@@ -3411,6 +5607,38 @@ function AccountEditor({ initial }: { initial: Account }) {
   const [phone, setPhone] = useState(initial.phone ?? '')
   const [email, setEmail] = useState(initial.email ?? '')
   const [address, setAddress] = useState(initial.address ?? '')
+  const [birthPlace, setBirthPlace] = useState(initial.birthPlace ?? '')
+  const [postalCode, setPostalCode] = useState(initial.postalCode ?? '')
+  const [homePhone, setHomePhone] = useState(initial.homePhone ?? '')
+  const [countryId, setCountryId] = useState(initial.countryId ?? '')
+  const [provinceId, setProvinceId] = useState(initial.provinceId ?? '')
+  const [cityId, setCityId] = useState(initial.cityId ?? '')
+  const [telegram, setTelegram] = useState(initial.telegram ?? '')
+  const [bale, setBale] = useState(initial.bale ?? '')
+  const [eitaa, setEitaa] = useState(initial.eitaa ?? '')
+  const [whatsapp, setWhatsapp] = useState(initial.whatsapp ?? '')
+  const [otherSocial, setOtherSocial] = useState(initial.otherSocial ?? '')
+  const [notes, setNotes] = useState(initial.notes ?? '')
+  const [vehiclePlates, setVehiclePlates] = useState<string[]>(
+    initial.vehiclePlates?.length ? initial.vehiclePlates : [''],
+  )
+  const countries = useQuery({
+    queryKey: ['lookups', 'countries'],
+    queryFn: () => portalApi.get<Lookup[]>('/lookups/countries').then(({ data }) => data),
+    staleTime: 300_000,
+  })
+  const provinces = useQuery({
+    queryKey: ['lookups', 'provinces', countryId],
+    enabled: Boolean(countryId),
+    queryFn: () => portalApi.get<Lookup[]>(`/lookups/provinces?countryId=${countryId}`).then(({ data }) => data),
+    staleTime: 300_000,
+  })
+  const cities = useQuery({
+    queryKey: ['lookups', 'cities', provinceId],
+    enabled: Boolean(provinceId),
+    queryFn: () => portalApi.get<Lookup[]>(`/lookups/cities?provinceId=${provinceId}`).then(({ data }) => data),
+    staleTime: 300_000,
+  })
   const tabs: FormTabItem[] = [
     { id: 'personal', label: t('account.tabs.personal'), icon: UserRound },
     { id: 'account', label: t('account.tabs.account'), icon: CircleUserRound },
@@ -3420,7 +5648,7 @@ function AccountEditor({ initial }: { initial: Account }) {
     { id: 'other', label: t('account.tabs.other'), icon: Mail },
   ]
   const save = useMutation({
-    mutationFn: (body: { phone: string; email?: string; address?: string }) => portalApi.patch('/account', body),
+    mutationFn: (body: Record<string, unknown>) => portalApi.patch('/account', body),
     onSuccess: () => {
       toast.success(t('account.saved'))
       void queryClient.invalidateQueries({ queryKey: ['account'] })
@@ -3452,10 +5680,48 @@ function AccountEditor({ initial }: { initial: Account }) {
     }
     save.mutate({
       phone: normalizedPhone,
-      ...(nextEmail ? { email: nextEmail } : {}),
-      ...(nextAddress ? { address: nextAddress } : {}),
+      email: nextEmail || null,
+      address: nextAddress || null,
+      birthPlace: birthPlace.trim() || null,
+      postalCode: postalCode.trim() || null,
+      homePhone: homePhone.trim() || null,
+      countryId: countryId || null,
+      provinceId: provinceId || null,
+      cityId: cityId || null,
+      telegram: telegram.trim() || null,
+      bale: bale.trim() || null,
+      eitaa: eitaa.trim() || null,
+      whatsapp: whatsapp.trim() || null,
+      otherSocial: otherSocial.trim() || null,
+      notes: notes.trim() || null,
+      vehiclePlates: vehiclePlates.map((plate) => plate.trim()).filter(Boolean),
     })
   }
+
+  const countryOptions = withCurrentOption(
+    [
+      { value: '', label: t('account.selectCountry') },
+      ...(countries.data ?? []).map((country) => ({ value: country.id, label: country.nameFa ?? country.name ?? '' })),
+    ],
+    countryId,
+    initial.country,
+  )
+  const provinceOptions = withCurrentOption(
+    [
+      { value: '', label: t('account.selectProvince') },
+      ...(provinces.data ?? []).map((province) => ({ value: province.id, label: province.nameFa ?? province.name ?? '' })),
+    ],
+    provinceId,
+    initial.province,
+  )
+  const cityOptions = withCurrentOption(
+    [
+      { value: '', label: t('account.selectCity') },
+      ...(cities.data ?? []).map((city) => ({ value: city.id, label: city.nameFa ?? city.name ?? '' })),
+    ],
+    cityId,
+    initial.city,
+  )
 
   return (
     <FormCard
@@ -3503,12 +5769,55 @@ function AccountEditor({ initial }: { initial: Account }) {
 
         <div id="form-panel-location" role="tabpanel" aria-labelledby="form-tab-location" className={tab === 'location' ? 'space-y-4' : 'hidden'}>
           <FormSectionTitle icon={MapPinned}>{t('account.locationSection')}</FormSectionTitle>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <FormFactTile icon={Hash} label={t('account.postalCode')} value={localizeDigits(initial.postalCode ?? '')} />
-            <FormFactTile icon={Phone} label={t('account.homePhone')} value={localizeDigits(initial.homePhone ?? '')} tone="ink" />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <FormField icon={Flag} label={t('account.country')} htmlFor="account-country">
+              <SearchSelect
+                id="account-country"
+                value={countryId}
+                placeholder={t('account.selectCountry')}
+                options={countryOptions}
+                onChange={(next) => {
+                  setCountryId(next)
+                  setProvinceId('')
+                  setCityId('')
+                }}
+              />
+            </FormField>
+            <FormField icon={MapPinned} label={t('account.province')} htmlFor="account-province">
+              <SearchSelect
+                id="account-province"
+                value={provinceId}
+                disabled={!countryId}
+                placeholder={t('account.selectProvince')}
+                options={provinceOptions}
+                onChange={(next) => {
+                  setProvinceId(next)
+                  setCityId('')
+                }}
+              />
+            </FormField>
+            <FormField icon={MapPin} label={t('account.city')} htmlFor="account-city">
+              <SearchSelect
+                id="account-city"
+                value={cityId}
+                disabled={!provinceId}
+                placeholder={t('account.selectCity')}
+                options={cityOptions}
+                onChange={setCityId}
+              />
+            </FormField>
+            <FormField icon={MapPin} label={t('account.birthPlace')} htmlFor="account-birth-place">
+              <input id="account-birth-place" className={fieldClassName} value={birthPlace} onChange={(event) => setBirthPlace(event.target.value)} />
+            </FormField>
+            <FormField icon={Hash} label={t('account.postalCode')} htmlFor="account-postal">
+              <input id="account-postal" className={`${fieldClassName} digit-field`} inputMode="numeric" value={postalCode} onChange={(event) => setPostalCode(event.target.value)} />
+            </FormField>
+            <FormField icon={Phone} label={t('account.homePhone')} htmlFor="account-home-phone">
+              <input id="account-home-phone" className={`${fieldClassName} digit-field`} inputMode="tel" value={homePhone} onChange={(event) => setHomePhone(event.target.value)} />
+            </FormField>
             <div className="sm:col-span-2">
               <FormField icon={MapPin} label={t('account.address')} htmlFor="account-address">
-                <textarea id="account-address" className={`${fieldClassName} min-h-24 resize-y`} value={address} minLength={5} onChange={(event) => setAddress(event.target.value)} />
+                <textarea id="account-address" className={`${fieldClassName} min-h-24 resize-y`} value={address} onChange={(event) => setAddress(event.target.value)} />
               </FormField>
             </div>
           </div>
@@ -3526,13 +5835,59 @@ function AccountEditor({ initial }: { initial: Account }) {
 
         <div id="form-panel-social" role="tabpanel" aria-labelledby="form-tab-social" className={tab === 'social' ? 'space-y-4' : 'hidden'}>
           <FormSectionTitle icon={ContactRound}>{t('account.socialSection')}</FormSectionTitle>
-          <EmptyState icon={ContactRound} text={t('account.socialReadOnly')} />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <FormField icon={MessageCircle} label={t('account.telegram')} htmlFor="account-telegram">
+              <input id="account-telegram" className={`${fieldClassName} latin-field`} dir="ltr" value={telegram} onChange={(event) => setTelegram(event.target.value)} />
+            </FormField>
+            <FormField icon={MessageCircle} label={t('account.bale')} htmlFor="account-bale">
+              <input id="account-bale" className={`${fieldClassName} latin-field`} dir="ltr" value={bale} onChange={(event) => setBale(event.target.value)} />
+            </FormField>
+            <FormField icon={MessageCircle} label={t('account.eitaa')} htmlFor="account-eitaa">
+              <input id="account-eitaa" className={`${fieldClassName} latin-field`} dir="ltr" value={eitaa} onChange={(event) => setEitaa(event.target.value)} />
+            </FormField>
+            <FormField icon={Phone} label={t('account.whatsapp')} htmlFor="account-whatsapp">
+              <input id="account-whatsapp" className={`${fieldClassName} latin-field`} dir="ltr" value={whatsapp} onChange={(event) => setWhatsapp(event.target.value)} />
+            </FormField>
+            <FormField icon={Share2} label={t('account.otherSocial')} htmlFor="account-other-social">
+              <input id="account-other-social" className={`${fieldClassName} latin-field`} dir="ltr" value={otherSocial} onChange={(event) => setOtherSocial(event.target.value)} />
+            </FormField>
+          </div>
         </div>
 
         <div id="form-panel-other" role="tabpanel" aria-labelledby="form-tab-other" className={tab === 'other' ? 'space-y-4' : 'hidden'}>
           <FormSectionTitle icon={Mail}>{t('account.otherSection')}</FormSectionTitle>
-          <FormField icon={Mail} label={t('account.email')} htmlFor="account-email">
-            <input id="account-email" type="email" className={fieldClassName} value={email} onChange={(event) => setEmail(event.target.value)} />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <FormField icon={Mail} label={t('account.email')} htmlFor="account-email">
+              <input id="account-email" type="email" className={`${fieldClassName} latin-field`} dir="ltr" value={email} onChange={(event) => setEmail(event.target.value)} />
+            </FormField>
+          </div>
+          <FormField icon={Car} label={t('account.vehiclePlates')}>
+            <div className="space-y-2">
+              {vehiclePlates.map((plate, index) => (
+                <div key={index} className="flex gap-2">
+                  <input
+                    className={fieldClassName}
+                    value={plate}
+                    onChange={(event) => {
+                      const next = [...vehiclePlates]
+                      next[index] = event.target.value
+                      setVehiclePlates(next)
+                    }}
+                  />
+                  {vehiclePlates.length > 1 ? (
+                    <Button type="button" variant="ghost" onClick={() => setVehiclePlates(vehiclePlates.filter((_, item) => item !== index))}>
+                      {t('account.removePlate')}
+                    </Button>
+                  ) : null}
+                </div>
+              ))}
+              <Button type="button" variant="ghost" onClick={() => setVehiclePlates([...vehiclePlates, ''])}>
+                {t('account.addPlate')}
+              </Button>
+            </div>
+          </FormField>
+          <FormField icon={FileText} label={t('account.notes')} htmlFor="account-notes">
+            <textarea id="account-notes" className={`${fieldClassName} min-h-28 resize-y`} rows={4} value={notes} onChange={(event) => setNotes(event.target.value)} />
           </FormField>
         </div>
 
@@ -3869,45 +6224,45 @@ function useLookup(url: string) {
   return query.data ?? []
 }
 
+function issuanceUrl(caseId: string, path = '') {
+  return caseId ? `/issuance/${caseId}${path}` : `/issuance/draft${path}`
+}
+
 function FormationPage() {
-  const { t } = useTranslation()
-  const started = useRef(false)
-  const [caseId, setCaseId] = useState('')
-  const start = useMutation({
-    mutationFn: () => portalApi.post<IssuanceState>('/issuance').then(({ data }) => data),
-    onSuccess: (data) => setCaseId(data.case.id),
-    onError: (error) => toast.error(getApiErrorMessage(error, t('app.error'))),
-  })
-  useEffect(() => {
-    if (started.current) return
-    started.current = true
-    start.mutate()
-  }, [start])
-  if (!caseId) {
-    if (start.isError) return <ErrorState error={start.error} />
-    return <LoadingState />
-  }
-  return <IssuanceWizard caseId={caseId} backTo="/cases" />
+  return <IssuanceWizard caseId="" backTo="/cases" />
 }
 
 function IssuancePage() {
   const { caseId = '' } = useParams()
+  const navigate = useNavigate()
+  const query = useQuery({
+    queryKey: ['case', caseId],
+    queryFn: () => portalApi.get<CaseDetail>(`/cases/${caseId}`).then(({ data }) => data),
+  })
+  useEffect(() => {
+    if (query.data?.kind === 'STEWARDSHIP') navigate(`/cases/${caseId}`, { replace: true })
+  }, [caseId, navigate, query.data?.kind])
+  if (query.isLoading) return <LoadingState />
+  if (query.isError) return <ErrorState error={query.error} />
+  if (query.data?.kind === 'STEWARDSHIP') return <LoadingState />
   return <IssuanceWizard caseId={caseId} backTo={`/cases/${caseId}`} />
 }
 
 function IssuanceWizard({ caseId, backTo }: { caseId: string; backTo: string }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const [openedId, setOpenedId] = useState(caseId)
   const state = useQuery({
-    queryKey: ['issuance', caseId],
-    queryFn: () => portalApi.get<IssuanceState>(`/issuance/${caseId}`).then(({ data }) => data),
+    queryKey: ['issuance', openedId || 'draft'],
+    queryFn: () => portalApi.get<IssuanceState>(issuanceUrl(openedId)).then(({ data }) => data),
   })
+  const resolvedId = openedId || state.data?.case.id || ''
   const requirements = useQuery({
-    queryKey: ['issuance-requirements', caseId],
+    queryKey: ['issuance-requirements', resolvedId || 'draft'],
     queryFn: () =>
       portalApi
         .get<{ identity: Array<{ isRequired: boolean; document: Lookup }>; activity: Array<{ isRequired: boolean; document: Lookup }> }>(
-          `/issuance/${caseId}/requirements`,
+          issuanceUrl(resolvedId, '/requirements'),
         )
         .then(({ data }) => data),
   })
@@ -3917,8 +6272,8 @@ function IssuanceWizard({ caseId, backTo }: { caseId: string; backTo: string }) 
   const places = useLookup('/lookups/registration-places')
   const [active, setActive] = useState<number | null>(null)
   const refresh = () => {
-    void queryClient.invalidateQueries({ queryKey: ['issuance', caseId] })
-    void queryClient.invalidateQueries({ queryKey: ['issuance-requirements', caseId] })
+    void queryClient.invalidateQueries({ queryKey: ['issuance', resolvedId || 'draft'] })
+    void queryClient.invalidateQueries({ queryKey: ['issuance-requirements', resolvedId || 'draft'] })
   }
   if (state.isLoading) return <LoadingState />
   if (state.isError || !state.data) return <ErrorState error={state.error} />
@@ -3931,6 +6286,16 @@ function IssuanceWizard({ caseId, backTo }: { caseId: string; backTo: string }) 
   const activityJobId = String((data.case as Record<string, unknown>).activityJobId ?? '')
   const activityJobTitle = jobs.find((item) => item.id === activityJobId)?.title ?? data.case.activityJob?.title ?? ''
   const pastIdentity = reached >= 1
+  const requiredActivityIds = (requirements.data?.activity ?? [])
+    .filter((item) => item.isRequired)
+    .map((item) => item.document.id)
+  const uploadedActivityIds = new Set(
+    data.documents.activity.filter((row) => row.versions[0]).map((row) => row.documentId),
+  )
+  const activityDocsBlocked =
+    data.editable &&
+    Boolean(requirements.data) &&
+    requiredActivityIds.some((id) => !uploadedActivityIds.has(id))
   return (
     <div className={shellClassName}>
       <PageHeader
@@ -3981,12 +6346,14 @@ function IssuanceWizard({ caseId, backTo }: { caseId: string; backTo: string }) 
           )
         }
         action={
-          <Link to={`/cases/${caseId}/finance`}>
-            <Button type="button" variant="ghost">
-              <Wallet className="size-4" aria-hidden />
-              {t('cases.finance')}
-            </Button>
-          </Link>
+          resolvedId ? (
+            <Link to={`/cases/${resolvedId}/finance`}>
+              <Button type="button" variant="ghost">
+                <Wallet className="size-4" aria-hidden />
+                {t('cases.finance')}
+              </Button>
+            </Link>
+          ) : undefined
         }
       />
       <ol className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7">
@@ -3997,7 +6364,7 @@ function IssuanceWizard({ caseId, backTo }: { caseId: string; backTo: string }) 
             <li key={item}>
               <button
                 type="button"
-                disabled={index > reached}
+                disabled={index > reached || (index >= 2 && activityDocsBlocked)}
                 onClick={() => setActive(index)}
                 className={`relative flex h-full min-h-[4.75rem] w-full flex-col items-center justify-center gap-1.5 rounded-2xl border-2 px-3 py-3 text-center text-sm ${
                   done
@@ -4029,10 +6396,23 @@ function IssuanceWizard({ caseId, backTo }: { caseId: string; backTo: string }) 
           )
         })}
       </ol>
-      {current === 0 ? <IdentityStep data={data} caseId={caseId} requirements={requirements.data} onSaved={() => { refresh(); setActive(1) }} /> : null}
-      {current === 1 ? <ActivityStep data={data} caseId={caseId} onSaved={() => { refresh(); setActive(2) }} /> : null}
-      {current === 2 ? <LocationStep data={data} cities={cities} complexes={complexes} places={places} caseId={caseId} onSaved={refresh} /> : null}
-      {current >= 3 ? <OrganizationStep caseId={caseId} active={current} /> : null}
+      {current === 0 ? (
+        <IdentityStep
+          data={data}
+          caseId={resolvedId}
+          requirements={requirements.data}
+          onSaved={(nextId) => {
+            const id = nextId || resolvedId
+            if (id && id !== openedId) setOpenedId(id)
+            void queryClient.invalidateQueries({ queryKey: ['issuance', id || 'draft'] })
+            void queryClient.invalidateQueries({ queryKey: ['issuance-requirements', id || 'draft'] })
+            setActive(1)
+          }}
+        />
+      ) : null}
+      {current === 1 ? <ActivityStep data={data} caseId={resolvedId} onSaved={() => { refresh(); setActive(2) }} /> : null}
+      {current === 2 ? <LocationStep data={data} cities={cities} complexes={complexes} places={places} caseId={resolvedId} onSaved={refresh} /> : null}
+      {current >= 3 ? <OrganizationStep caseId={resolvedId} active={current} /> : null}
     </div>
   )
 }
@@ -4110,7 +6490,7 @@ function IdentityStep({
   data: IssuanceState
   caseId: string
   requirements?: { identity: Array<{ isRequired: boolean; document: Lookup }>; activity: Array<{ isRequired: boolean; document: Lookup }> }
-  onSaved: () => void
+  onSaved: (caseId?: string) => void
 }) {
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -4118,10 +6498,11 @@ function IdentityStep({
   const [tab, setTab] = useState<'identity' | 'documents'>('identity')
   const person = data.identity
   const confirm = useMutation({
-    mutationFn: () => portalApi.post(`/issuance/${caseId}/identity/confirm`),
-    onSuccess: () => {
+    mutationFn: () =>
+      portalApi.post<IssuanceState>(issuanceUrl(caseId, '/identity/confirm')).then(({ data: body }) => body),
+    onSuccess: (body) => {
       toast.success(t('cases.identitySaved'))
-      onSaved()
+      onSaved(body.case.id || undefined)
     },
     onError: (error) => toast.error(getApiErrorMessage(error, t('app.error'))),
   })
@@ -4206,8 +6587,8 @@ function IdentityStep({
             requirements={requirements}
             scope="identity"
             onUploaded={() => {
-              void queryClient.invalidateQueries({ queryKey: ['issuance', caseId] })
-              void queryClient.invalidateQueries({ queryKey: ['issuance-requirements', caseId] })
+              void queryClient.invalidateQueries({ queryKey: ['issuance', caseId || 'draft'] })
+              void queryClient.invalidateQueries({ queryKey: ['issuance-requirements', caseId || 'draft'] })
             }}
           />
         )}
@@ -4368,6 +6749,21 @@ function ActivityStep({ data, caseId, onSaved }: { data: IssuanceState; caseId: 
       focusField('case-activity-job')
       return
     }
+    if (activityRequirements.isLoading) return
+    if (activityRequirements.isError || !activityRequirements.data) {
+      toast.error(getApiErrorMessage(activityRequirements.error, t('app.error')))
+      return
+    }
+    const uploaded = new Set(
+      data.documents.activity.filter((row) => row.versions.length > 0).map((row) => row.documentId),
+    )
+    const missingDocument = activityRequirements.data.activity.some(
+      (item) => item.isRequired && !uploaded.has(item.document.id),
+    )
+    if (missingDocument) {
+      toast.error(t('cases.activityDocumentsRequired'))
+      return
+    }
     mutation.mutate()
   }
   return (
@@ -4513,6 +6909,14 @@ function ActivityStep({ data, caseId, onSaved }: { data: IssuanceState; caseId: 
   )
 }
 
+type IntakeReceipt = {
+  jobTitle: string
+  jobGroup: string
+  unitTitle: string
+  requestNumber: string
+  submittedAt: string
+}
+
 function LocationStep({
   data,
   cities,
@@ -4529,7 +6933,7 @@ function LocationStep({
   onSaved: () => void
 }) {
   const { t } = useTranslation()
-  const navigate = useNavigate()
+  const [receipt, setReceipt] = useState<IntakeReceipt | null>(null)
   const formId = useId()
   const [form, setForm] = useState(() => ({
     cityId: caseValue(data.case, 'premiseCityId'),
@@ -4573,10 +6977,10 @@ function LocationStep({
     ''
   const commercialComplex = form.establishment === 'COMMERCIAL_COMPLEX'
   const rented = form.ownership === 'RENTED'
-  const mutation = useMutation({
-    mutationFn: () => {
+  const submit = useMutation({
+    mutationFn: async () => {
       const text = (value: string) => value.trim() || undefined
-      return portalApi.patch(`/issuance/${caseId}/location`, {
+      await portalApi.patch(`/issuance/${caseId}/location`, {
         cityId: form.cityId,
         establishment: form.establishment,
         complexId: commercialComplex ? form.complexId : undefined,
@@ -4600,17 +7004,11 @@ function LocationStep({
         leaseAgency: rented ? text(form.leaseAgency) : undefined,
         ownerName: rented ? text(form.ownerName) : undefined,
       })
+      const { data: body } = await portalApi.post<{ receipt: IntakeReceipt }>(`/issuance/${caseId}/submit`)
+      return body.receipt
     },
-    onSuccess: () => {
-      toast.success(t('cases.locationSaved'))
-      onSaved()
-    },
-    onError: (error) => toast.error(getApiErrorMessage(error, t('app.error'))),
-  })
-  const submit = useMutation({
-    mutationFn: () => portalApi.post(`/issuance/${caseId}/submit`),
-    onSuccess: () => {
-      toast.success(t('issuance.submitted'))
+    onSuccess: (next) => {
+      setReceipt(next)
       onSaved()
     },
     onError: (error) => toast.error(getApiErrorMessage(error, t('app.error'))),
@@ -4646,7 +7044,7 @@ function LocationStep({
       focusField('case-ownership')
       return
     }
-    mutation.mutate()
+    submit.mutate()
   }
   return (
     <div className="space-y-6">
@@ -4656,9 +7054,9 @@ function LocationStep({
         subtitle={t('cases.locationCardSubtitle')}
         action={
           data.editable ? (
-            <Button type="submit" form={formId} disabled={mutation.isPending}>
-              <Check className="size-4" aria-hidden />
-              {t('cases.saveLocation')}
+            <Button type="submit" form={formId} disabled={submit.isPending} className="h-auto max-w-xl whitespace-normal text-start leading-6">
+              <Check className="size-4 shrink-0" aria-hidden />
+              {t('issuance.intakeSubmit')}
             </Button>
           ) : null
         }
@@ -4898,19 +7296,75 @@ function LocationStep({
           {data.editable ? null : <EmptyState icon={ShieldCheck} text={t('issuance.locked')} />}
         </AppForm>
       </FormCard>
-      {data.editable ? (
-        <section className="flex flex-wrap gap-3 rounded-2xl border border-teal-100 bg-gradient-to-b from-teal-50/70 to-white p-4 sm:p-5">
-          <Button type="button" onClick={() => submit.mutate()} disabled={submit.isPending}>
-            <Check className="size-4" aria-hidden />
-            {t('issuance.submit')}
-          </Button>
-          <Button type="button" variant="ghost" onClick={() => navigate(`/cases/${caseId}`)}>
-            <X className="size-4" aria-hidden />
-            {t('common.cancel')}
-          </Button>
-        </section>
-      ) : null}
+      {receipt ? <IntakeReceiptDialog receipt={receipt} onClose={() => setReceipt(null)} /> : null}
     </div>
+  )
+}
+
+function IntakeReceiptDialog({ receipt, onClose }: { receipt: IntakeReceipt; onClose: () => void }) {
+  const { t } = useTranslation()
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.repeat) return
+      event.preventDefault()
+      onClose()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [onClose])
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-ink-900/30 p-4 pt-[10vh]"
+      data-nested-dialog
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="intake-receipt-title"
+    >
+      <div className="w-full max-w-lg overflow-hidden rounded-3xl border border-teal-100 bg-white shadow-[0_24px_60px_rgba(15,118,110,0.18)]">
+        <div className="bg-teal-500 bg-[linear-gradient(to_inline-end,var(--color-teal-500),var(--color-mint-500))] px-6 py-5 text-white">
+          <div className="flex items-start gap-3">
+            <span className="inline-flex size-11 shrink-0 items-center justify-center rounded-2xl bg-white/20">
+              <CircleCheck className="size-6" aria-hidden />
+            </span>
+            <div>
+              <h2 id="intake-receipt-title" className="text-lg font-semibold">
+                {t('issuance.intakeSubmittedTitle')}
+              </h2>
+              <p className="mt-2 text-sm leading-7 text-white/95">{t('issuance.intakeSubmittedBody')}</p>
+            </div>
+          </div>
+        </div>
+        <div className="space-y-3 p-5">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <FormFactTile icon={FolderKanban} label={t('cases.jobGroup')} value={receipt.jobGroup || undefined} />
+            <FormFactTile icon={Briefcase} label={t('issuance.jobTitle')} value={receipt.jobTitle || undefined} tone="mint" />
+            <FormFactTile icon={Building2} label={t('cases.unitTitle')} value={receipt.unitTitle || undefined} />
+            <FormFactTile icon={Hash} label={t('cases.requestNumber')} value={receipt.requestNumber ? localizeDigits(receipt.requestNumber) : undefined} tone="mint" />
+          </div>
+          <FormFactTile
+            icon={CalendarDays}
+            label={t('issuance.submittedAt')}
+            value={
+              <span dir="ltr">
+                {formatDate(receipt.submittedAt)} {formatClock(receipt.submittedAt)}
+              </span>
+            }
+          />
+          <div className="flex justify-end pt-1">
+            <Button type="button" onClick={onClose}>
+              <Check className="size-4" aria-hidden />
+              {t('common.close')}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -4942,7 +7396,7 @@ function DocumentRequirements({ data, caseId, requirements, onUploaded, scope }:
     body.set('file', file)
     setUploadingId(key)
     try {
-      await portalApi.post(`/issuance/${caseId}/documents`, body, { timeout: 60_000 })
+      await portalApi.post(issuanceUrl(caseId, '/documents'), body, { timeout: 60_000 })
       toast.success(t('common.saved'))
       onUploaded()
     } catch (error) {
@@ -5083,6 +7537,320 @@ function DocumentSlot({
   )
 }
 
+type PortalInquiryFile = {
+  id: string
+  originalName: string | null
+  mimeType: string
+  byteSize: number
+}
+
+type PortalReview = {
+  id: string
+  status: string
+  referredAt: string | null
+  decidedAt: string | null
+  decidedBy: { fullName: string } | null
+  files: PortalInquiryFile[]
+}
+
+type PortalInquiry = PortalReview & {
+  inquiryCenter: { name: string }
+}
+
+type PortalManagementReview = PortalReview & {
+  title: string
+}
+
+function inquiryStatusMeta(status: string): { icon: LucideIcon; badge: string } {
+  if (status === 'APPROVED') return { icon: CircleCheck, badge: 'bg-teal-50 text-teal-800 ring-teal-200' }
+  if (status === 'REJECTED') return { icon: CircleX, badge: 'bg-red-50 text-red-700 ring-red-200' }
+  return { icon: Clock3, badge: 'bg-amber-50 text-amber-800 ring-amber-200' }
+}
+
+function DateTimeValue({ value }: { value: string }) {
+  return (
+    <span className="inline-flex items-center gap-2 whitespace-nowrap" dir="ltr">
+      <span>{formatDate(value)}</span>
+      <span className="font-medium text-ink-500">{formatClock(value)}</span>
+    </span>
+  )
+}
+
+function reviewElapsedLabel(
+  fromIso: string | null,
+  toIso: string | null,
+  translate: (key: string, options?: Record<string, string>) => string,
+) {
+  if (!fromIso || !toIso) return null
+  const elapsed = Math.max(0, new Date(toIso).getTime() - new Date(fromIso).getTime())
+  if (!Number.isFinite(elapsed)) return null
+  const minute = 60_000
+  const hour = 60 * minute
+  const day = 24 * hour
+  const week = 7 * day
+  const month = 30 * day
+  const n = (value: number) => formatNumber(value)
+  if (elapsed < minute) return translate('cases.inquiryElapsedUnderMinute')
+  if (elapsed < day) {
+    const hours = Math.floor(elapsed / hour)
+    const minutes = Math.floor((elapsed % hour) / minute)
+    if (hours === 0) return translate('cases.inquiryElapsedMinute', { count: n(minutes) })
+    if (minutes === 0) return translate('cases.inquiryElapsedHour', { count: n(hours) })
+    return translate('cases.inquiryElapsedHourMinute', { hours: n(hours), minutes: n(minutes) })
+  }
+  if (elapsed < week) {
+    const days = Math.floor(elapsed / day)
+    const hours = Math.floor((elapsed % day) / hour)
+    if (hours === 0) return translate('cases.inquiryElapsedDay', { count: n(days) })
+    return translate('cases.inquiryElapsedDayHour', { days: n(days), hours: n(hours) })
+  }
+  if (elapsed < month) return translate('cases.inquiryElapsedDay', { count: n(Math.floor(elapsed / day)) })
+  const weeks = Math.floor(elapsed / week)
+  const days = Math.floor((elapsed % week) / day)
+  if (days === 0) return translate('cases.inquiryElapsedWeek', { count: n(weeks) })
+  return translate('cases.inquiryElapsedWeekDay', { weeks: n(weeks), days: n(days) })
+}
+
+function ReviewSummaryCard({
+  title,
+  icon: Icon,
+  status: statusValue,
+  referredAt,
+  decidedAt,
+  reviewer,
+  files,
+  hrefOf,
+  letterUrl,
+}: {
+  title: string
+  icon: LucideIcon
+  status: string
+  referredAt: string | null
+  decidedAt: string | null
+  reviewer: string | null
+  files: PortalInquiryFile[]
+  hrefOf: (fileId: string) => string
+  letterUrl?: string
+}) {
+  const { t } = useTranslation()
+  const status = inquiryStatusMeta(statusValue)
+  const StatusIcon = status.icon
+  const elapsed = reviewElapsedLabel(referredAt, decidedAt, t)
+  return (
+    <article className="overflow-hidden rounded-2xl border border-teal-100 bg-white shadow-[0_8px_20px_rgba(46,189,182,0.08)]">
+      <header className="flex items-center gap-3 bg-gradient-to-e from-teal-50 via-white to-mint-50 px-4 py-3">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-teal-500 text-white shadow-[0_6px_14px_rgba(46,189,182,0.32)]">
+          <Icon className="size-5" aria-hidden />
+        </span>
+        <h3 className="min-w-0 flex-1 truncate text-sm font-semibold text-ink-900">{title}</h3>
+      </header>
+      <div className="space-y-4 p-4">
+        {letterUrl ? <PortalLetterButtons letterUrl={letterUrl} /> : null}
+        <div className="grid gap-2 sm:grid-cols-2">
+          <FormFactTile
+            icon={CalendarClock}
+            label={t('issuance.referredAt')}
+            value={referredAt ? <DateTimeValue value={referredAt} /> : undefined}
+          />
+          <FormFactTile
+            icon={CalendarCheck}
+            label={t('issuance.decidedAt')}
+            tone="mint"
+            value={
+              decidedAt ? (
+                <span className="flex flex-col items-start gap-1.5">
+                  <DateTimeValue value={decidedAt} />
+                  {elapsed ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-800 ring-1 ring-emerald-200">
+                      <Clock3 className="size-3" aria-hidden />
+                      {elapsed}
+                    </span>
+                  ) : null}
+                </span>
+              ) : undefined
+            }
+          />
+          <FormFactTile icon={UserRound} label={t('issuance.decidedBy')} value={reviewer || undefined} />
+          <FormFactTile
+            icon={StatusIcon}
+            label={t('issuance.status')}
+            tone="mint"
+            value={
+              <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${status.badge}`}>
+                <StatusIcon className="size-3.5" aria-hidden />
+                {statusLabel(statusValue, t)}
+              </span>
+            }
+          />
+        </div>
+        <InquiryAttachments files={files} hrefOf={hrefOf} />
+      </div>
+    </article>
+  )
+}
+
+function attachmentKind(file: PortalInquiryFile, mime: string | null): 'image' | 'pdf' | 'audio' | 'other' {
+  const type = (mime || file.mimeType || '').toLowerCase()
+  const name = file.originalName ?? ''
+  if (type.startsWith('image/') || RECORD_IMAGE_NAME.test(name)) return 'image'
+  if (type === 'application/pdf' || /\.pdf$/i.test(name)) return 'pdf'
+  if (type.startsWith('audio/') || RECORD_AUDIO_NAME.test(name)) return 'audio'
+  return 'other'
+}
+
+function useAttachmentSrc(href: string) {
+  const [src, setSrc] = useState<string>()
+  const [mime, setMime] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
+  useEffect(() => {
+    let objectUrl = ''
+    let cancelled = false
+    setFailed(false)
+    setSrc(undefined)
+    setMime(null)
+    void portalApi
+      .get<Blob>(href, { responseType: 'blob', timeout: 60_000 })
+      .then((response) => {
+        if (cancelled) return
+        const header = String(response.headers['content-type'] ?? '')
+        const type = (header.split(';')[0].trim() || response.data.type || '').toLowerCase()
+        if (!type || type.includes('json') || type.startsWith('text/')) {
+          setFailed(true)
+          return
+        }
+        const blob = response.data.type ? response.data : new Blob([response.data], { type })
+        objectUrl = URL.createObjectURL(blob)
+        setMime(type)
+        setSrc(objectUrl)
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true)
+      })
+    return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [href])
+  return { src, mime, failed }
+}
+
+function InquiryAttachments({
+  files,
+  hrefOf,
+}: {
+  files: PortalInquiryFile[]
+  hrefOf: (fileId: string) => string
+}) {
+  const { t } = useTranslation()
+  if (!files.length) return null
+  return (
+    <div className="space-y-3">
+      <FormSectionTitle icon={Paperclip} className="mb-0">
+        {t('issuance.attachments')}
+      </FormSectionTitle>
+      <div className="flex flex-wrap gap-3">
+        {files.map((file) => (
+          <AttachmentPreview key={file.id} file={file} href={hrefOf(file.id)} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function AttachmentPreview({ file, href }: { file: PortalInquiryFile; href: string }) {
+  const { t } = useTranslation()
+  const media = useAttachmentSrc(href)
+  const kind = attachmentKind(file, media.mime)
+  const name = file.originalName || t('cases.inquiryAttachment')
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    if (!open) return
+    function onKey(event: KeyboardEvent) {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open])
+
+  return (
+    <>
+      <button
+        type="button"
+        disabled={!media.src}
+        title={name}
+        aria-label={t('cases.inquiryDocEnlarge')}
+        onClick={() => setOpen(true)}
+        className="flex w-36 cursor-zoom-in flex-col overflow-hidden rounded-2xl bg-white text-start shadow-[0_6px_16px_rgba(46,189,182,0.12)] ring-1 ring-teal-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500 disabled:cursor-default"
+      >
+        <span className="flex h-28 items-center justify-center overflow-hidden bg-teal-50/70">
+          {media.failed ? (
+            <span className="px-2 text-center text-[11px] leading-5 text-red-600">{t('cases.attachmentFailed')}</span>
+          ) : kind === 'image' && media.src ? (
+            <img src={media.src} alt="" className="size-full object-contain" />
+          ) : !media.src ? (
+            <span className="size-full animate-pulse bg-teal-50" />
+          ) : kind === 'audio' ? (
+            <Mic className="size-6 text-teal-600" aria-hidden />
+          ) : (
+            <FileText className="size-6 text-teal-600" aria-hidden />
+          )}
+        </span>
+        <span className="flex items-center gap-1.5 px-2 py-1.5 text-[11px] font-medium text-ink-700">
+          <Paperclip className="size-3.5 shrink-0 text-teal-600" aria-hidden />
+          <span className="min-w-0 truncate">{name}</span>
+        </span>
+      </button>
+      {open && media.src ? (
+        <AttachmentViewer
+          src={media.src}
+          name={name}
+          kind={kind}
+          onClose={() => setOpen(false)}
+        />
+      ) : null}
+    </>
+  )
+}
+
+function AttachmentViewer({
+  src,
+  name,
+  kind,
+  onClose,
+}: {
+  src: string
+  name: string
+  kind: 'image' | 'pdf' | 'audio' | 'other'
+  onClose: () => void
+}) {
+  const { t } = useTranslation()
+  return createPortal(
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-ink-900/50 p-4">
+      <button type="button" className="absolute inset-0 cursor-zoom-out" aria-label={t('common.close')} onClick={onClose} />
+      <section className="relative z-10 flex max-h-[92dvh] w-full max-w-5xl flex-col overflow-hidden rounded-3xl bg-white shadow-xl">
+        <header className="flex items-center justify-between gap-3 border-b border-teal-100 px-4 py-3">
+          <p className="min-w-0 truncate text-sm font-medium text-ink-800">{name}</p>
+          <button type="button" className="cursor-pointer rounded-xl p-2 text-ink-500 hover:bg-teal-50" aria-label={t('common.close')} onClick={onClose}>
+            <X className="size-4" aria-hidden />
+          </button>
+        </header>
+        <div className="min-h-0 flex-1 overflow-auto bg-cream-50 p-4">
+          {kind === 'image' ? <img src={src} alt={name} className="mx-auto max-h-[80dvh] w-full object-contain" /> : null}
+          {kind === 'pdf' ? <iframe title={name} src={src} className="h-[80dvh] w-full rounded-2xl bg-white" /> : null}
+          {kind === 'audio' ? <audio src={src} controls autoPlay className="w-full" dir="ltr" /> : null}
+          {kind === 'other' ? (
+            <a href={src} download={name} className="inline-flex items-center gap-2 text-sm font-medium text-teal-700">
+              <FileText className="size-4" aria-hidden />
+              {name}
+            </a>
+          ) : null}
+        </div>
+      </section>
+    </div>,
+    document.body,
+  )
+}
+
 function OrganizationStep({ caseId, active }: { caseId: string; active: number }) {
   const { t } = useTranslation()
   const query = useQuery({
@@ -5090,9 +7858,9 @@ function OrganizationStep({ caseId, active }: { caseId: string; active: number }
     queryFn: () =>
       portalApi
         .get<{
-          inquiries: Array<{ id: string; status: string; inquiryCenter: { name: string } }>
-          placesReview: { status: string } | null
-          managementReviews: Array<{ id: string; status: string; role: { name: string } }>
+          inquiries: PortalInquiry[]
+          placesReview: PortalReview | null
+          managementReviews: PortalManagementReview[]
           caseFile: { licenseNumber: string | null }
         }>(`/issuance/${caseId}/organization-steps`)
         .then(({ data }) => data),
@@ -5100,28 +7868,1023 @@ function OrganizationStep({ caseId, active }: { caseId: string; active: number }
   if (query.isLoading) return <LoadingState />
   if (query.isError || !query.data) return <ErrorState error={query.error} />
   const titles = FORMATION_STEPS.map((item) => `cases.steps.${item}`)
+  if (active === 6) {
+    return <IssuedLicenseView caseId={caseId} emptyText={t('issuance.awaitingIssuance')} />
+  }
   let content: ReactNode = <EmptyState icon={ShieldCheck} text={t('issuance.locked')} />
   if (active === 3) {
     content = query.data.inquiries.length ? (
-      <div className="grid gap-3 sm:grid-cols-2">
-        {query.data.inquiries.map((row) => <FormFactTile key={row.id} icon={ShieldCheck} label={row.inquiryCenter.name} value={statusLabel(row.status, t)} />)}
+      <div className="space-y-4">
+        <PortalLettersToolbar
+          letterUrls={[
+            ...query.data.inquiries.map((row) => `/issuance/${caseId}/inquiries/${row.id}/letter`),
+            ...(query.data.placesReview ? [`/issuance/${caseId}/places/letter`] : []),
+          ]}
+        />
+        {query.data.inquiries.map((row) => (
+          <ReviewSummaryCard
+            key={row.id}
+            title={row.inquiryCenter.name}
+            icon={Landmark}
+            status={row.status}
+            referredAt={row.referredAt}
+            decidedAt={row.decidedAt}
+            reviewer={row.decidedBy?.fullName ?? null}
+            files={row.files}
+            hrefOf={(fileId) => `/issuance/${caseId}/inquiries/${row.id}/files/${fileId}`}
+            letterUrl={`/issuance/${caseId}/inquiries/${row.id}/letter`}
+          />
+        ))}
       </div>
     ) : <EmptyState icon={ShieldCheck} text={t('app.empty')} />
   }
-  if (active === 4) content = <FormFactTile icon={ShieldCheck} label={t('issuance.places')} value={query.data.placesReview ? statusLabel(query.data.placesReview.status, t) : t('issuance.awaitingReferral')} />
+  if (active === 4) {
+    const places = query.data.placesReview
+    content = places ? (
+      <ReviewSummaryCard
+        title={t('cases.steps.places')}
+        icon={Building2}
+        status={places.status}
+        referredAt={places.referredAt}
+        decidedAt={places.decidedAt}
+        reviewer={places.decidedBy?.fullName ?? null}
+        files={places.files}
+        hrefOf={(fileId) => `/issuance/${caseId}/places/files/${fileId}`}
+        letterUrl={`/issuance/${caseId}/places/letter`}
+      />
+    ) : (
+      <EmptyState icon={Building2} text={t('issuance.awaitingReferral')} />
+    )
+  }
   if (active === 5) {
     content = query.data.managementReviews.length ? (
-      <div className="grid gap-3 sm:grid-cols-2">
-        {query.data.managementReviews.map((row) => <FormFactTile key={row.id} icon={CircleUserRound} label={row.role.name} value={statusLabel(row.status, t)} tone="mint" />)}
+      <div className="space-y-4">
+        {query.data.managementReviews.map((row) => (
+          <ReviewSummaryCard
+            key={row.id}
+            title={row.title}
+            icon={CircleUserRound}
+            status={row.status}
+            referredAt={row.referredAt}
+            decidedAt={row.decidedAt}
+            reviewer={row.decidedBy?.fullName ?? null}
+            files={row.files}
+            hrefOf={(fileId) => `/issuance/${caseId}/management-reviews/${row.id}/files/${fileId}`}
+          />
+        ))}
       </div>
     ) : <EmptyState icon={CircleUserRound} text={t('app.empty')} />
   }
-  if (active === 6) content = <FormFactTile icon={FileBadge2} label={t('cases.licenseNumber')} value={query.data.caseFile.licenseNumber ? localizeDigits(query.data.caseFile.licenseNumber) : t('issuance.awaitingIssuance')} />
   const icons = [UserRound, Briefcase, MapPin, ShieldCheck, Building2, CircleUserRound, FileBadge2]
   return (
     <FormCard icon={icons[active] ?? ShieldCheck} title={t(titles[active])}>
       <div className={formBodyClassName}>{content}</div>
     </FormCard>
+  )
+}
+
+function formatFee(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return '—'
+  return formatNumber(value)
+}
+
+function dailyFee(annualFee: number | null | undefined) {
+  if (annualFee == null || !Number.isFinite(annualFee)) return null
+  return Math.round(annualFee / 365)
+}
+
+function StatusBadge({ active }: { active: boolean }) {
+  const { t } = useTranslation()
+  return (
+    <span
+      className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
+        active ? 'bg-teal-50 text-teal-700' : 'bg-cream-100 text-ink-500'
+      }`}
+    >
+      {active ? t('geo.active') : t('geo.inactive')}
+    </span>
+  )
+}
+
+function EntityNameSubtitle({ name, icon: Icon }: { name: string; icon: LucideIcon }) {
+  return (
+    <span className="mt-1 inline-flex items-center gap-1.5 text-sm text-ink-500">
+      <Icon className="size-3.5 text-teal-600" aria-hidden />
+      {name}
+    </span>
+  )
+}
+
+function CatalogPager({
+  page,
+  pageSize,
+  total,
+  onPageChange,
+}: {
+  page: number
+  pageSize: number
+  total: number
+  onPageChange: (page: number) => void
+}) {
+  const { t } = useTranslation()
+  if (!total) return null
+  const from = (page - 1) * pageSize + 1
+  const to = Math.min(page * pageSize, total)
+  return (
+    <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <p className="text-sm text-ink-500">
+        {t('common.showingRange', {
+          from: formatNumber(from),
+          to: formatNumber(to),
+          total: formatNumber(total),
+        })}
+      </p>
+      <div className="flex items-center gap-2">
+        <Button variant="ghost" disabled={page <= 1} onClick={() => onPageChange(page - 1)}>
+          <ChevronRight className="size-4" />
+          {t('common.previous')}
+        </Button>
+        <span className="min-w-16 text-center text-sm text-ink-700">
+          {t('common.page')} {formatNumber(page)}
+        </span>
+        <Button variant="ghost" disabled={page * pageSize >= total} onClick={() => onPageChange(page + 1)}>
+          {t('common.next')}
+          <ChevronLeft className="size-4" />
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function CatalogTable({
+  loading,
+  error,
+  empty,
+  emptyIcon: EmptyIcon,
+  hasRows,
+  children,
+}: {
+  loading: boolean
+  error?: unknown
+  empty: string
+  emptyIcon: LucideIcon
+  hasRows: boolean
+  children: ReactNode
+}) {
+  return (
+    <section data-list-table className={`min-w-0 overflow-hidden border border-line ${cardClassName}`}>
+      {loading ? (
+        <LoadingState />
+      ) : error ? (
+        <ErrorState error={error} />
+      ) : hasRows ? (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">{children}</table>
+        </div>
+      ) : (
+        <EmptyState icon={EmptyIcon} text={empty} />
+      )}
+    </section>
+  )
+}
+
+function ViewAction({ to }: { to: string }) {
+  const { t } = useTranslation()
+  return (
+    <Link to={to} data-row-view onClick={(event) => event.stopPropagation()}>
+      <Button type="button" variant="ghost">
+        <Eye className="size-4" aria-hidden />
+        {t('common.view')}
+      </Button>
+    </Link>
+  )
+}
+
+function onCatalogRowKeyDown(
+  event: React.KeyboardEvent<HTMLTableRowElement>,
+  to: string,
+  navigate: ReturnType<typeof useNavigate>,
+) {
+  if (event.target !== event.currentTarget) return
+  if (event.key === 'Enter') {
+    navigate(to)
+    return
+  }
+  if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+  event.preventDefault()
+  const rows = Array.from(
+    event.currentTarget.closest('[data-list-table]')?.querySelectorAll<HTMLTableRowElement>('[data-list-row]') ?? [],
+  )
+  const index = rows.indexOf(event.currentTarget)
+  if (event.key === 'ArrowUp' && index === 0) {
+    document.querySelector<HTMLInputElement>('[data-list-search]')?.focus()
+    return
+  }
+  rows[Math.max(0, Math.min(rows.length - 1, index + (event.key === 'ArrowDown' ? 1 : -1)))]?.focus()
+}
+
+function useCatalogListParams() {
+  const [params, setParams] = useSearchParams()
+  const [term, setTerm] = useState(params.get('q') ?? '')
+  const page = Math.max(1, Number(params.get('page') ?? 1))
+  const sortBy = params.get('sortBy') ?? ''
+  const sortDir = params.get('sortDir') ?? ''
+  useEffect(() => {
+    setTerm(params.get('q') ?? '')
+  }, [params])
+  const setPage = (nextPage: number) => {
+    const next = new URLSearchParams(params)
+    next.set('page', String(nextPage))
+    setParams(next)
+  }
+  const setFilter = (updates: Record<string, string | undefined>) => {
+    const next = new URLSearchParams(params)
+    for (const [key, value] of Object.entries(updates)) {
+      if (value) next.set(key, value)
+      else next.delete(key)
+    }
+    next.set('page', '1')
+    setParams(next)
+  }
+  const sort = (column: string) => {
+    const state = nextSort(column, sortBy, sortDir)
+    const next = new URLSearchParams(params)
+    if (state.sortBy) {
+      next.set('sortBy', state.sortBy)
+      next.set('sortDir', state.sortDir)
+    } else {
+      next.delete('sortBy')
+      next.delete('sortDir')
+    }
+    next.set('page', '1')
+    setParams(next)
+  }
+  const search = () => {
+    const input = document.querySelector<HTMLInputElement>('[data-list-search]')
+    const text = (input?.value ?? term).trim()
+    const next = new URLSearchParams(params)
+    if (text) next.set('q', text)
+    else next.delete('q')
+    next.set('page', '1')
+    setParams(next)
+  }
+  return { params, term, setTerm, page, sortBy, sortDir, setPage, setFilter, sort, search }
+}
+
+function JobTypesCatalogPage() {
+  const { t } = useTranslation()
+  const navigate = useNavigate()
+  const { term, setTerm, page, sortBy, sortDir, setPage, sort, search, params } = useCatalogListParams()
+  const query = useQuery({
+    queryKey: ['base-info', 'job-types', params.toString()],
+    queryFn: () =>
+      portalApi
+        .get<Paginated<CatalogJobType>>('/base-info/job-types', {
+          params: { q: params.get('q') || undefined, page, sortBy: sortBy || undefined, sortDir: sortDir || undefined },
+        })
+        .then(({ data }) => data),
+  })
+  const rows = query.data?.items ?? []
+  return (
+    <div className={catalogShellClassName}>
+      <PageHeader icon={Briefcase} title={t('nav.jobTypes')} subtitle={t('jobTypes.subtitle')} />
+      <SearchBar
+        term={term}
+        onTermChange={setTerm}
+        onSubmit={search}
+        placeholder={t('jobTypes.searchPlaceholder')}
+      />
+      <CatalogTable
+        loading={query.isLoading}
+        error={query.error}
+        empty={params.get('q') ? t('jobTypes.noResults') : t('jobTypes.empty')}
+        emptyIcon={Briefcase}
+        hasRows={rows.length > 0}
+      >
+        <thead className="bg-cream-50 text-ink-700">
+          <tr>
+            <SortableTh column="title" label={t('jobTypes.title')} sortBy={sortBy} sortDir={sortDir} onSort={sort} />
+            <SortableTh column="annualFee" label={t('jobTypes.annualFee')} sortBy={sortBy} sortDir={sortDir} onSort={sort} />
+            <SortableTh column="dailyFee" label={t('jobTypes.dailyFee')} sortBy={sortBy} sortDir={sortDir} onSort={sort} />
+            <th className={`${actionsColClassName} text-start font-medium`}>{t('common.actions')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((item) => {
+            const to = `/base-info/job-types/${item.id}`
+            return (
+              <tr
+                key={item.id}
+                data-list-row
+                tabIndex={0}
+                className="cursor-pointer border-t border-line hover:bg-cream-50 focus:outline-none focus-visible:shadow-[inset_0_0_0_2px_#5ed4ce]"
+                onClick={() => navigate(to)}
+                onKeyDown={(event) => onCatalogRowKeyDown(event, to, navigate)}
+              >
+                <td className="px-4 py-3">{item.title}</td>
+                <td className="px-4 py-3">{formatFee(item.annualFee)}</td>
+                <td className="px-4 py-3">{formatFee(dailyFee(item.annualFee))}</td>
+                <td className={actionsColClassName}>
+                  <ViewAction to={to} />
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </CatalogTable>
+      {query.data ? (
+        <CatalogPager page={query.data.page} pageSize={query.data.pageSize} total={query.data.total} onPageChange={setPage} />
+      ) : null}
+    </div>
+  )
+}
+
+function JobTypeCatalogDetailPage() {
+  const { t } = useTranslation()
+  const { id } = useParams()
+  const query = useQuery({
+    queryKey: ['base-info', 'job-type', id],
+    enabled: Boolean(id),
+    queryFn: () => portalApi.get<CatalogJobType>(`/base-info/job-types/${id}`).then(({ data }) => data),
+  })
+  const item = query.data
+  if (query.isLoading || !item) {
+    return query.isError ? <ErrorState error={query.error} /> : <LoadingState />
+  }
+  return (
+    <div className={catalogShellClassName}>
+      <PageHeader
+        icon={Briefcase}
+        title={t('jobTypes.details')}
+        subtitle={<EntityNameSubtitle name={item.title} icon={Briefcase} />}
+        backTo="/base-info/job-types"
+      />
+      <FormCard icon={Briefcase} title={item.title}>
+        <div className="space-y-6 p-5 sm:p-6">
+          <FormSectionTitle icon={Briefcase}>{t('jobTypes.details')}</FormSectionTitle>
+          <div className="grid gap-2 sm:grid-cols-2 sm:gap-3">
+            <FormFactTile icon={Type} label={t('jobTypes.title')} value={item.title} tone="teal" />
+            <FormFactTile icon={Banknote} label={t('jobTypes.annualFee')} value={formatFee(item.annualFee)} tone="mint" />
+            <FormFactTile icon={CalendarDays} label={t('jobTypes.dailyFee')} value={formatFee(dailyFee(item.annualFee))} tone="teal" />
+            <FormFactTile
+              icon={FileText}
+              label={t('jobTypes.description')}
+              value={item.description || '—'}
+              className="sm:col-span-2"
+            />
+          </div>
+        </div>
+      </FormCard>
+    </div>
+  )
+}
+
+function JobGroupsCatalogPage() {
+  const { t } = useTranslation()
+  const navigate = useNavigate()
+  const { term, setTerm, page, sortBy, sortDir, setPage, sort, search, params } = useCatalogListParams()
+  const query = useQuery({
+    queryKey: ['base-info', 'job-groups', params.toString()],
+    queryFn: () =>
+      portalApi
+        .get<Paginated<CatalogJobGroup>>('/base-info/job-groups', {
+          params: { q: params.get('q') || undefined, page, sortBy: sortBy || undefined, sortDir: sortDir || undefined },
+        })
+        .then(({ data }) => data),
+  })
+  const rows = query.data?.items ?? []
+  return (
+    <div className={catalogShellClassName}>
+      <PageHeader icon={FolderKanban} title={t('nav.jobGroups')} subtitle={t('jobGroups.subtitle')} />
+      <SearchBar
+        term={term}
+        onTermChange={setTerm}
+        onSubmit={search}
+        placeholder={t('jobGroups.searchPlaceholder')}
+      />
+      <CatalogTable
+        loading={query.isLoading}
+        error={query.error}
+        empty={params.get('q') ? t('jobGroups.noResults') : t('jobGroups.empty')}
+        emptyIcon={FolderKanban}
+        hasRows={rows.length > 0}
+      >
+        <thead className="bg-cream-50 text-ink-700">
+          <tr>
+            <SortableTh column="title" label={t('jobGroups.title')} sortBy={sortBy} sortDir={sortDir} onSort={sort} />
+            <SortableTh column="code" label={t('jobGroups.code')} sortBy={sortBy} sortDir={sortDir} onSort={sort} />
+            <SortableTh column="jobCount" label={t('jobGroups.jobCount')} sortBy={sortBy} sortDir={sortDir} onSort={sort} />
+            <th className={`${actionsColClassName} text-start font-medium`}>{t('common.actions')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((item) => {
+            const to = `/base-info/job-groups/${item.id}`
+            return (
+              <tr
+                key={item.id}
+                data-list-row
+                tabIndex={0}
+                className="cursor-pointer border-t border-line hover:bg-cream-50 focus:outline-none focus-visible:shadow-[inset_0_0_0_2px_#5ed4ce]"
+                onClick={() => navigate(to)}
+                onKeyDown={(event) => onCatalogRowKeyDown(event, to, navigate)}
+              >
+                <td className="px-4 py-3">{item.title}</td>
+                <td className="px-4 py-3" dir="ltr">
+                  {item.code ? localizeDigits(item.code) : '—'}
+                </td>
+                <td className="px-4 py-3">{formatNumber(item._count?.jobs ?? 0)}</td>
+                <td className={actionsColClassName}>
+                  <ViewAction to={to} />
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </CatalogTable>
+      {query.data ? (
+        <CatalogPager page={query.data.page} pageSize={query.data.pageSize} total={query.data.total} onPageChange={setPage} />
+      ) : null}
+    </div>
+  )
+}
+
+function JobGroupCatalogDetailPage() {
+  const { t } = useTranslation()
+  const { id } = useParams()
+  const query = useQuery({
+    queryKey: ['base-info', 'job-group', id],
+    enabled: Boolean(id),
+    queryFn: () => portalApi.get<CatalogJobGroup>(`/base-info/job-groups/${id}`).then(({ data }) => data),
+  })
+  const item = query.data
+  if (query.isLoading || !item) {
+    return query.isError ? <ErrorState error={query.error} /> : <LoadingState />
+  }
+  return (
+    <div className={catalogShellClassName}>
+      <PageHeader
+        icon={FolderKanban}
+        title={t('jobGroups.details')}
+        subtitle={<EntityNameSubtitle name={item.title} icon={FolderKanban} />}
+        backTo="/base-info/job-groups"
+      />
+      <FormCard icon={FolderKanban} title={item.title}>
+        <div className="space-y-6 p-5 sm:p-6">
+          <FormSectionTitle icon={FolderKanban}>{t('jobGroups.details')}</FormSectionTitle>
+          <div className="grid gap-2 sm:grid-cols-2 sm:gap-3">
+            <FormFactTile icon={FolderKanban} label={t('jobGroups.title')} value={item.title} tone="teal" />
+            <FormFactTile
+              icon={Languages}
+              label={t('jobGroups.titleEn')}
+              value={item.titleEn ? <span dir="ltr">{item.titleEn}</span> : '—'}
+              tone="mint"
+            />
+            <FormFactTile
+              icon={Hash}
+              label={t('jobGroups.code')}
+              value={item.code ? localizeDigits(item.code) : '—'}
+              tone="mint"
+            />
+            <FormFactTile icon={Briefcase} label={t('jobGroups.jobCount')} value={formatNumber(item._count?.jobs ?? 0)} />
+            <FormFactTile icon={FolderKanban} label={t('jobGroups.isActive')} value={<StatusBadge active={item.isActive} />} />
+            <FormFactTile
+              icon={FileText}
+              label={t('jobGroups.description')}
+              value={item.description || '—'}
+              className="sm:col-span-2"
+            />
+          </div>
+        </div>
+      </FormCard>
+    </div>
+  )
+}
+
+function JobsCatalogPage() {
+  const { t } = useTranslation()
+  const navigate = useNavigate()
+  const { term, setTerm, page, sortBy, sortDir, setPage, setFilter, sort, search, params } = useCatalogListParams()
+  const groupId = params.get('groupId') ?? ''
+  const jobTypeId = params.get('jobTypeId') ?? ''
+  const filtersActive = Boolean(groupId || jobTypeId)
+  const groups = useQuery({
+    queryKey: ['base-info', 'job-groups', 'lookup'],
+    queryFn: () => portalApi.get<CatalogJobGroup[]>('/base-info/job-groups').then(({ data }) => data),
+  })
+  const types = useQuery({
+    queryKey: ['base-info', 'job-types', 'lookup'],
+    queryFn: () => portalApi.get<CatalogJobType[]>('/base-info/job-types').then(({ data }) => data),
+  })
+  const stats = useQuery({
+    queryKey: ['base-info', 'jobs', 'stats'],
+    queryFn: () => portalApi.get<CatalogJobStats>('/base-info/jobs/stats').then(({ data }) => data),
+  })
+  const query = useQuery({
+    queryKey: ['base-info', 'jobs', params.toString()],
+    queryFn: () =>
+      portalApi
+        .get<Paginated<CatalogJob>>('/base-info/jobs', {
+          params: {
+            q: params.get('q') || undefined,
+            page,
+            ...(groupId ? { groupId } : {}),
+            ...(jobTypeId ? { jobTypeId } : {}),
+            sortBy: sortBy || undefined,
+            sortDir: sortDir || undefined,
+          },
+        })
+        .then(({ data }) => data),
+  })
+  const rows = query.data?.items ?? []
+  return (
+    <div className={catalogShellClassName}>
+      <PageHeader icon={HardHat} title={t('nav.jobs')} subtitle={t('jobCatalog.subtitle')} />
+      <JobCatalogStatsCards stats={stats.data} loading={stats.isLoading} />
+      <SearchBar
+        term={term}
+        onTermChange={setTerm}
+        onSubmit={search}
+        placeholder={t('jobCatalog.searchPlaceholder')}
+        filtersActive={filtersActive}
+        onClearFilters={() => setFilter({ groupId: undefined, jobTypeId: undefined })}
+        extra={
+          <>
+            <FormField icon={FolderKanban} label={t('jobCatalog.jobGroup')} htmlFor="job-filter-group">
+              <SearchSelect
+                id="job-filter-group"
+                value={groupId}
+                onChange={(next) => setFilter({ groupId: next || undefined })}
+                placeholder={t('jobCatalog.allGroups')}
+                options={[
+                  { value: '', label: t('jobCatalog.allGroups') },
+                  ...(groups.data ?? []).map((item) => ({ value: item.id, label: item.title })),
+                ]}
+              />
+            </FormField>
+            <FormField icon={Briefcase} label={t('jobCatalog.jobType')} htmlFor="job-filter-type">
+              <SearchSelect
+                id="job-filter-type"
+                value={jobTypeId}
+                onChange={(next) => setFilter({ jobTypeId: next || undefined })}
+                placeholder={t('jobCatalog.allJobTypes')}
+                options={[
+                  { value: '', label: t('jobCatalog.allJobTypes') },
+                  ...(types.data ?? []).map((item) => ({ value: item.id, label: item.title })),
+                ]}
+              />
+            </FormField>
+          </>
+        }
+      />
+      <CatalogTable
+        loading={query.isLoading}
+        error={query.error}
+        empty={params.get('q') || filtersActive ? t('jobCatalog.noResults') : t('jobCatalog.empty')}
+        emptyIcon={HardHat}
+        hasRows={rows.length > 0}
+      >
+        <thead className="bg-cream-50 text-ink-700">
+          <tr>
+            <SortableTh column="title" label={t('jobCatalog.title')} sortBy={sortBy} sortDir={sortDir} onSort={sort} />
+            <SortableTh column="jobType" label={t('jobCatalog.jobType')} sortBy={sortBy} sortDir={sortDir} onSort={sort} />
+            <SortableTh column="annualFee" label={t('jobCatalog.listAnnualFee')} sortBy={sortBy} sortDir={sortDir} onSort={sort} />
+            <SortableTh column="group" label={t('jobCatalog.jobGroup')} sortBy={sortBy} sortDir={sortDir} onSort={sort} />
+            <th className={`${actionsColClassName} text-start font-medium`}>{t('common.actions')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((item) => {
+            const to = `/base-info/jobs/${item.id}`
+            return (
+              <tr
+                key={item.id}
+                data-list-row
+                tabIndex={0}
+                className="cursor-pointer border-t border-line hover:bg-cream-50 focus:outline-none focus-visible:shadow-[inset_0_0_0_2px_#5ed4ce]"
+                onClick={() => navigate(to)}
+                onKeyDown={(event) => onCatalogRowKeyDown(event, to, navigate)}
+              >
+                <td className="px-4 py-3">{item.title || '—'}</td>
+                <td className="px-4 py-3">{item.jobType.title}</td>
+                <td className="px-4 py-3">
+                  {item.annualFee == null ? (
+                    '—'
+                  ) : (
+                    <span className="inline-flex flex-wrap items-center gap-2">
+                      {formatFee(item.annualFee)}
+                      <span className="inline-flex rounded-full bg-teal-50 px-2 py-0.5 text-xs font-medium text-teal-700">
+                        {t('jobCatalog.dailyFee')} {formatFee(dailyFee(item.annualFee))}
+                      </span>
+                    </span>
+                  )}
+                </td>
+                <td className="px-4 py-3">{item.group?.title ?? '—'}</td>
+                <td className={actionsColClassName}>
+                  <ViewAction to={to} />
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </CatalogTable>
+      {query.data ? (
+        <CatalogPager page={query.data.page} pageSize={query.data.pageSize} total={query.data.total} onPageChange={setPage} />
+      ) : null}
+    </div>
+  )
+}
+
+function JobCatalogStatsCards({ stats, loading }: { stats: CatalogJobStats | undefined; loading: boolean }) {
+  const { t } = useTranslation()
+  if (loading && !stats) {
+    return (
+      <div className="mb-4 grid gap-3 sm:grid-cols-2" aria-hidden>
+        <div className="h-[4.75rem] animate-pulse rounded-2xl bg-teal-50" />
+        <div className="h-[4.75rem] animate-pulse rounded-2xl bg-mint-50" />
+      </div>
+    )
+  }
+  if (!stats) return null
+  return (
+    <section className="mb-4 space-y-3">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <StatCard icon={HardHat} label={t('jobCatalog.statsJobs')} value={stats.jobCount} tone="teal" />
+        <StatCard icon={FolderKanban} label={t('jobCatalog.statsGroups')} value={stats.jobGroupCount} tone="mint" />
+      </div>
+      {stats.byJobType.length > 0 ? (
+        <div className="rounded-3xl border border-teal-100 bg-[linear-gradient(180deg,#ffffff_0%,#f4fbfa_100%)] p-4 shadow-[0_12px_32px_rgba(46,189,182,0.08)] sm:p-5">
+          <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-teal-800">
+            <span className="flex size-8 items-center justify-center rounded-xl bg-teal-500 text-white shadow-[0_8px_16px_rgba(46,189,182,0.28)]">
+              <Layers className="size-4" aria-hidden />
+            </span>
+            {t('jobCatalog.statsByType')}
+          </div>
+          <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+            {stats.byJobType.map((item, index) => (
+              <StatCard
+                key={item.id}
+                icon={Briefcase}
+                label={item.title}
+                value={item.count}
+                tone={index % 2 === 0 ? 'teal' : 'mint'}
+                compact
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+function StatCard({
+  icon: Icon,
+  label,
+  value,
+  tone,
+  compact = false,
+}: {
+  icon: LucideIcon
+  label: string
+  value: number
+  tone: 'teal' | 'mint'
+  compact?: boolean
+}) {
+  const wrap = {
+    teal: 'border-teal-100 bg-gradient-to-b from-teal-50 to-white',
+    mint: 'border-mint-100 bg-gradient-to-b from-mint-50 to-white',
+  }[tone]
+  const iconClass = {
+    teal: 'bg-teal-500 shadow-[0_10px_18px_rgba(46,189,182,0.28)]',
+    mint: 'bg-mint-500 shadow-[0_10px_18px_rgba(63,214,190,0.28)]',
+  }[tone]
+  return (
+    <article
+      className={`flex min-w-0 items-center gap-3 rounded-2xl border shadow-[0_8px_22px_rgba(46,189,182,0.08)] ${compact ? 'px-3 py-2.5' : 'px-4 py-3.5'} ${wrap}`}
+    >
+      <span
+        className={`flex shrink-0 items-center justify-center rounded-2xl text-white ${iconClass} ${compact ? 'size-9' : 'size-11'}`}
+      >
+        <Icon className={compact ? 'size-4' : 'size-5'} aria-hidden />
+      </span>
+      <div className="min-w-0">
+        <p className="truncate text-xs font-medium text-ink-500">{label}</p>
+        <p className={`font-semibold text-ink-900 ${compact ? 'mt-0.5 text-xl' : 'mt-0.5 text-2xl'}`}>
+          {formatNumber(value)}
+        </p>
+      </div>
+    </article>
+  )
+}
+
+function JobCatalogDetailPage() {
+  const { t } = useTranslation()
+  const { id } = useParams()
+  const query = useQuery({
+    queryKey: ['base-info', 'job', id],
+    enabled: Boolean(id),
+    queryFn: () => portalApi.get<CatalogJob>(`/base-info/jobs/${id}`).then(({ data }) => data),
+  })
+  const item = query.data
+  if (query.isLoading || !item) {
+    return query.isError ? <ErrorState error={query.error} /> : <LoadingState />
+  }
+  return (
+    <div className={catalogShellClassName}>
+      <PageHeader
+        icon={HardHat}
+        title={t('jobCatalog.details')}
+        subtitle={<EntityNameSubtitle name={item.title || item.titleEn || ''} icon={HardHat} />}
+        backTo="/base-info/jobs"
+      />
+      <FormCard icon={HardHat} title={item.title || item.titleEn || ''}>
+        <div className="space-y-6 p-5 sm:p-6">
+          <div className="grid gap-2 sm:grid-cols-2 sm:gap-3">
+            <FormFactTile icon={Type} label={t('jobCatalog.title')} value={item.title || '—'} tone="teal" />
+            <FormFactTile icon={Languages} label={t('jobCatalog.titleEn')} value={item.titleEn || '—'} tone="mint" />
+            <FormFactTile
+              icon={ReceiptText}
+              label={t('jobCatalog.taxIntaCode')}
+              value={item.taxIntaCode ? localizeDigits(item.taxIntaCode) : '—'}
+            />
+            <FormFactTile icon={Briefcase} label={t('jobCatalog.jobType')} value={item.jobType.title} />
+            <FormFactTile
+              icon={Banknote}
+              label={t('jobCatalog.annualFee')}
+              value={formatFee(item.annualFee)}
+              tone="mint"
+            />
+            <FormFactTile icon={FolderKanban} label={t('jobCatalog.jobGroup')} value={item.group?.title ?? '—'} />
+            <FormFactTile icon={HardHat} label={t('jobCatalog.isActive')} value={<StatusBadge active={item.isActive} />} />
+          </div>
+        </div>
+      </FormCard>
+    </div>
+  )
+}
+
+const VIOLATION_STATUSES = [
+  'REGISTERED',
+  'UNDER_REVIEW',
+  'NOTICE',
+  'REFERRED',
+  'VERDICT_ISSUED',
+  'CLOSED',
+  'DISMISSED',
+] as const
+
+const violationStatusClass: Record<string, string> = {
+  REGISTERED: 'bg-teal-50 text-teal-800 ring-teal-200',
+  UNDER_REVIEW: 'bg-mint-50 text-teal-900 ring-mint-200',
+  NOTICE: 'bg-amber-50 text-amber-800 ring-amber-200',
+  REFERRED: 'bg-cream-50 text-ink-700 ring-line',
+  VERDICT_ISSUED: 'bg-teal-100 text-teal-900 ring-teal-300',
+  CLOSED: 'bg-mint-100 text-teal-900 ring-mint-300',
+  DISMISSED: 'bg-red-50 text-red-700 ring-red-200',
+}
+
+function ViolationStatusBadge({ status }: { status: string }) {
+  const { t } = useTranslation()
+  return (
+    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${violationStatusClass[status] ?? 'bg-cream-50 text-ink-700 ring-line'}`}>
+      {violationStatusLabel(status, t)}
+    </span>
+  )
+}
+
+function focusViolationRow(current: HTMLTableRowElement, direction: 1 | -1) {
+  const rows = Array.from(current.closest('[data-list-table]')?.querySelectorAll<HTMLTableRowElement>('[data-list-row]') ?? [])
+  const index = rows.indexOf(current)
+  if (direction < 0 && index === 0) {
+    document.querySelector<HTMLInputElement>('[data-list-search]')?.focus()
+    return
+  }
+  rows[Math.max(0, Math.min(rows.length - 1, index + direction))]?.focus()
+}
+
+function MyViolationsPage() {
+  const { t } = useTranslation()
+  const navigate = useNavigate()
+  const [params, setParams] = useSearchParams()
+  const [term, setTerm] = useState(params.get('q') ?? '')
+  const page = Math.max(1, Number(params.get('page') ?? 1))
+  const pageSize = 10
+  const sortBy = params.get('sortBy') ?? ''
+  const sortDir = params.get('sortDir') ?? ''
+  const status = params.get('status') ?? ''
+  const query = useQuery({
+    queryKey: ['my-violations', params.toString()],
+    queryFn: () =>
+      portalApi
+        .get<Paginated<PortalViolationSummary>>('/violations', { params: Object.fromEntries(params) })
+        .then(({ data }) => data),
+  })
+  const setPage = (nextPage: number) => {
+    const next = new URLSearchParams(params)
+    next.set('page', String(nextPage))
+    setParams(next)
+  }
+  const setFilter = (updates: Record<string, string | undefined>) => {
+    const next = new URLSearchParams(params)
+    for (const [key, value] of Object.entries(updates)) {
+      if (value) next.set(key, value)
+      else next.delete(key)
+    }
+    next.set('page', '1')
+    setParams(next)
+  }
+  const sort = (column: string) => {
+    const state = nextSort(column, sortBy, sortDir)
+    const next = new URLSearchParams(params)
+    if (state.sortBy) {
+      next.set('sortBy', state.sortBy)
+      next.set('sortDir', state.sortDir)
+    } else {
+      next.delete('sortBy')
+      next.delete('sortDir')
+    }
+    next.set('page', '1')
+    setParams(next)
+  }
+  const search = () => {
+    const input = document.querySelector<HTMLInputElement>('[data-list-search]')
+    const text = (input?.value ?? term).trim()
+    const next = new URLSearchParams(params)
+    if (text) next.set('q', text)
+    else next.delete('q')
+    next.set('page', '1')
+    setParams(next)
+  }
+  const total = query.data?.total ?? 0
+  const from = total ? (page - 1) * pageSize + 1 : 0
+  const to = Math.min(page * pageSize, total)
+  const filtered = Boolean(params.get('q') || status)
+  return (
+    <div className={shellClassName}>
+      <PageHeader icon={Gavel} title={t('violations.title')} subtitle={t('violations.subtitle')} />
+      <SearchBar
+        term={term}
+        onTermChange={setTerm}
+        onSubmit={search}
+        placeholder={t('violations.searchPlaceholder')}
+        filtersActive={Boolean(status)}
+        onClearFilters={() => setFilter({ status: undefined })}
+        extra={
+          <FormField icon={ShieldAlert} label={t('violations.filterStatus')} htmlFor="my-violation-status">
+            <SearchSelect
+              id="my-violation-status"
+              value={status}
+              onChange={(next) => setFilter({ status: next || undefined })}
+              placeholder={t('violations.allStatuses')}
+              options={[
+                { value: '', label: t('violations.allStatuses') },
+                ...VIOLATION_STATUSES.map((item) => ({ value: item, label: t(`violationStatuses.${item}`) })),
+              ]}
+            />
+          </FormField>
+        }
+      />
+      <section data-list-table className={`min-w-0 overflow-hidden border border-line ${cardClassName}`}>
+        {query.isLoading ? (
+          <LoadingState />
+        ) : query.isError ? (
+          <ErrorState error={query.error} />
+        ) : query.data?.items.length ? (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px] text-sm">
+              <thead className="bg-cream-50 text-ink-700">
+                <tr>
+                  <SortableTh column="violationType" label={t('violations.violationType')} sortBy={sortBy} sortDir={sortDir} onSort={sort} />
+                  <SortableTh column="businessUnitTitle" label={t('cases.unitTitle')} sortBy={sortBy} sortDir={sortDir} onSort={sort} />
+                  <SortableTh column="licenseNumber" label={t('cases.licenseNumber')} sortBy={sortBy} sortDir={sortDir} onSort={sort} />
+                  <SortableTh column="occurredAt" label={t('violations.occurredAt')} sortBy={sortBy} sortDir={sortDir} onSort={sort} />
+                  <SortableTh column="status" label={t('violations.status')} sortBy={sortBy} sortDir={sortDir} onSort={sort} align="center" />
+                </tr>
+              </thead>
+              <tbody>
+                {query.data.items.map((item) => (
+                  <tr
+                    key={item.id}
+                    data-list-row
+                    tabIndex={0}
+                    className="cursor-pointer border-t border-line focus:outline-none focus-visible:shadow-[inset_0_0_0_2px_#5ed4ce]"
+                    onClick={() => navigate(`/violations/${item.id}`)}
+                    onKeyDown={(event) => {
+                      if (event.target !== event.currentTarget) return
+                      if (event.key === 'Enter') {
+                        navigate(`/violations/${item.id}`)
+                        return
+                      }
+                      if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+                      event.preventDefault()
+                      focusViolationRow(event.currentTarget, event.key === 'ArrowDown' ? 1 : -1)
+                    }}
+                  >
+                    <td className="px-4 py-3 font-medium text-ink-900">{item.violationType.title}</td>
+                    <td className="px-4 py-3">{item.caseFile?.businessUnitTitle || '—'}</td>
+                    <td className="px-4 py-3">
+                      {item.caseFile?.licenseNumber ? (
+                        <span dir="ltr" className="inline-flex rounded-full bg-teal-50 px-2.5 py-0.5 text-xs font-medium text-teal-900 ring-1 ring-teal-200">
+                          {localizeDigits(item.caseFile.licenseNumber)}
+                        </span>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
+                    <td className="px-4 py-3">{formatDate(item.occurredAt)}</td>
+                    <td className="px-4 py-3 text-center">
+                      <ViolationStatusBadge status={item.status} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <EmptyState icon={Gavel} text={filtered ? t('violations.noResults') : t('violations.empty')} />
+        )}
+      </section>
+      {total ? (
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-ink-500">
+            {t('common.showingRange', { from: formatNumber(from), to: formatNumber(to), total: formatNumber(total) })}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+              <ChevronRight className="size-4" />
+              {t('common.previous')}
+            </Button>
+            <span className="min-w-16 text-center text-sm text-ink-700">
+              {t('common.page')} {formatNumber(page)}
+            </span>
+            <Button variant="ghost" disabled={page * pageSize >= total} onClick={() => setPage(page + 1)}>
+              {t('common.next')}
+              <ChevronLeft className="size-4" />
+            </Button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function MyViolationDetailPage() {
+  const { t } = useTranslation()
+  const { user } = useAuth()
+  const { violationId = '' } = useParams()
+  const query = useQuery({
+    queryKey: ['my-violation', violationId],
+    enabled: Boolean(violationId),
+    queryFn: () => portalApi.get<PortalViolation>(`/violations/${violationId}`).then(({ data }) => data),
+  })
+  const item = query.data
+  return (
+    <div className={shellClassName}>
+      <PageHeader icon={Gavel} title={t('violations.details')} subtitle={item?.violationType.title} backTo="/violations" />
+      {query.isLoading ? <LoadingState /> : null}
+      {query.isError ? <ErrorState error={query.error} /> : null}
+      {item ? (
+        <FormCard icon={ShieldAlert} title={item.violationType.title}>
+          <div className="space-y-6 p-5 sm:p-6">
+            <div className="grid gap-2 sm:grid-cols-2 sm:gap-3">
+              <FormFactTile icon={Tag} label={t('violations.violationType')} value={item.violationType.title} tone="teal" />
+              <FormFactTile icon={ShieldAlert} label={t('violations.status')} value={<ViolationStatusBadge status={item.status} />} tone="mint" />
+              <FormFactTile icon={CalendarDays} label={t('violations.occurredAt')} value={formatDate(item.occurredAt)} tone="teal" />
+              <FormFactTile icon={UserRound} label={t('violations.personName')} value={user?.fullName} tone="mint" />
+              <FormFactTile icon={IdCard} label={t('violations.nationalId')} copyValue={item.nationalId} tone="teal" />
+              <FormFactTile
+                icon={Store}
+                label={t('cases.unitTitle')}
+                value={
+                  item.caseFile ? (
+                    <Link to={`/cases/${item.caseFile.id}`} className="text-teal-700 hover:underline">
+                      {item.caseFile.businessUnitTitle || t('cases.details')}
+                    </Link>
+                  ) : undefined
+                }
+                tone="mint"
+              />
+              <FormFactTile
+                icon={FileBadge2}
+                label={t('cases.licenseNumber')}
+                value={item.caseFile?.licenseNumber ? localizeDigits(item.caseFile.licenseNumber) : undefined}
+              />
+              <FormFactTile
+                icon={FileText}
+                label={t('violations.description')}
+                value={item.description?.trim() || undefined}
+                className="sm:col-span-2"
+              />
+            </div>
+            <ViolationAttachmentMedia
+              hrefFor={(attachmentId) => `/violations/${item.id}/attachments/${attachmentId}`}
+              items={item.attachments}
+            />
+          </div>
+        </FormCard>
+      ) : null}
+    </div>
   )
 }
 
@@ -5135,6 +8898,8 @@ export function PortalParityRoot() {
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/register" element={<RegisterPage />} />
           <Route element={<Protected />}>
             <Route element={<PortalLayout />}>
               <Route index element={<Navigate to="/dashboard" replace />} />
@@ -5144,9 +8909,24 @@ export function PortalParityRoot() {
               <Route path="/cases/:caseId" element={<CaseDetailPage />} />
               <Route path="/cases/:caseId/finance" element={<FinancePage />} />
               <Route path="/cases/:caseId/dossier" element={<CaseDossierPage />} />
+              <Route path="/cases/:caseId/stewardship/card" element={<CaseStewardCardPage />} />
+              <Route path="/cases/:caseId/stewardship" element={<CaseStewardshipFormationPage />} />
               <Route path="/cases/:caseId/license" element={<CaseLicensePage />} />
+              <Route path="/cases/:caseId/auction/new" element={<PortalAuctionNewPage />} />
+              <Route path="/cases/:caseId/auction/:requestId" element={<PortalAuctionDetailPage />} />
+              <Route path="/cases/:caseId/renewal/:requestId" element={<PortalRenewalPage />} />
+              <Route path="/cases/:caseId/location-change/:requestId" element={<PortalLocationChangePage />} />
+              <Route path="/violations" element={<MyViolationsPage />} />
+              <Route path="/violations/:violationId" element={<MyViolationDetailPage />} />
               <Route path="/account" element={<AccountPage />} />
               <Route path="/account/password" element={<PasswordPage />} />
+              <Route path="/base-info" element={<Navigate to="/base-info/job-types" replace />} />
+              <Route path="/base-info/job-types" element={<JobTypesCatalogPage />} />
+              <Route path="/base-info/job-types/:id" element={<JobTypeCatalogDetailPage />} />
+              <Route path="/base-info/job-groups" element={<JobGroupsCatalogPage />} />
+              <Route path="/base-info/job-groups/:id" element={<JobGroupCatalogDetailPage />} />
+              <Route path="/base-info/jobs" element={<JobsCatalogPage />} />
+              <Route path="/base-info/jobs/:id" element={<JobCatalogDetailPage />} />
               <Route path="/issuance/:caseId" element={<IssuancePage />} />
             </Route>
           </Route>

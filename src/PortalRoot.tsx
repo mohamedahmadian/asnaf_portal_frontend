@@ -455,8 +455,8 @@ function CaseDetailPage() {
       <div className="action-row">
         <Link className="button ghost" to={`/cases/${caseId}/finance`}><BadgeDollarSign />{t('cases.finance')}</Link>
         <Button variant="soft" disabled title={t('cases.future')}>{t('cases.renewal')}</Button>
-        <Button variant="soft" disabled title={t('cases.future')}>{t('cases.auction')}</Button>
-        <Button variant="soft" disabled title={t('cases.future')}>{t('cases.stewardship')}</Button>
+        <Button variant="soft" disabled title={t('cases.future')}>{t('cases.auction.title')}</Button>
+        <Button variant="soft" disabled title={t('cases.future')}>{t('cases.requestTypes.STEWARDSHIP')}</Button>
         {item.licenseNumber ? null : <Link className="button primary" to={`/issuance/${caseId}`}><FileBadge2 />{t('issuance.title')}</Link>}
       </div>
     </div>

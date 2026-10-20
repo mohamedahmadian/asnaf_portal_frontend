@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { portalConfig } from '@/config/runtime'
+import i18n from '../i18n'
 import { getPortalToken } from './auth-token'
 
 export const portalApi = axios.create({
@@ -28,10 +29,17 @@ portalApi.interceptors.response.use(
   },
 )
 
+export function isBadGatewayError(error: unknown): boolean {
+  return axios.isAxiosError(error) && error.response?.status === 502
+}
+
 export function getApiErrorMessage(
   error: unknown,
   fallback: string,
 ): string {
+  if (isBadGatewayError(error)) {
+    return i18n.t('app.unavailable')
+  }
   if (!axios.isAxiosError(error)) {
     return fallback
   }
