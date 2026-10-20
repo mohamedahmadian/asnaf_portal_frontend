@@ -94,6 +94,7 @@ type PortalAuctionRequest = {
   status: 'OPEN' | 'ISSUED' | 'COMPLETED' | 'REJECTED' | 'CANCELLED'
   editable: boolean
   phase: number
+  awaitingIntake?: boolean
   title: string | null
   startsAt: string
   endsAt: string

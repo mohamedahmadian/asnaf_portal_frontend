@@ -12,8 +12,11 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(rootDir, 'src'),
+      react: path.resolve(rootDir, 'node_modules/react'),
+      'react-dom': path.resolve(rootDir, 'node_modules/react-dom'),
+      'lucide-react': path.resolve(rootDir, 'node_modules/lucide-react'),
     },
-    dedupe: ['react', 'react-dom', 'react-i18next', 'i18next'],
+    dedupe: ['react', 'react-dom', 'react-i18next', 'i18next', 'lucide-react'],
   },
   server: {
     host: '127.0.0.1',

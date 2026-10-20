@@ -33,7 +33,6 @@ import {
   FormCardHeader,
   FormEmptyHint,
   FormFactTile,
-  FormSectionTitle,
   cardClassName,
   formCardBodyClassName,
 } from '../../../frontend/src/components/ui/FormLayout'
@@ -52,7 +51,7 @@ import { optimizeImageFile } from '../../../frontend/src/lib/optimize-image'
 import { formatNumber } from '../../../frontend/src/lib/datetime'
 import { PortalLetterButtons, PortalLettersToolbar } from '../components/PortalLetters'
 import { getApiErrorMessage, portalApi } from '../lib/api'
-import type { PortalStewardFormationState } from '../types/portal'
+import type { PortalStewardFormationReview, PortalStewardFormationState } from '../types/portal'
 
 function PageHeader({
   icon,
@@ -134,7 +133,44 @@ function ReviewFileButton({ href, name }: { href: string; name: string }) {
   )
 }
 
-type ReviewRow = PortalStewardFormationState['inquiries'][number]
+function toIdentityPerson(
+  person: PortalStewardFormationState['person'],
+  extras: { caseId: string; formationStep: number },
+): IdentityPerson {
+  return fillPerson({
+    id: person.id,
+    firstName: person.firstName,
+    lastName: person.lastName,
+    fatherName: person.fatherName,
+    lastNameEn: person.lastNameEn,
+    gender: (person.gender as IdentityPerson['gender']) ?? null,
+    religion: (person.religion as IdentityPerson['religion']) ?? null,
+    religionOther: person.religionOther,
+    nationalId: person.nationalId,
+    birthDate: person.birthDate,
+    residencyStatus: (person.residencyStatus as IdentityPerson['residencyStatus']) ?? null,
+    passportNumber: person.passportNumber,
+    nationalCardExpiresAt: person.nationalCardExpiresAt,
+    passportExpiresAt: person.passportExpiresAt,
+    identityCertificateNo: person.identityCertificateNo,
+    birthPlace: person.birthPlace,
+    identityIssuedIn: person.identityIssuedIn,
+    countryId: person.countryId,
+    phone: person.phone,
+    homePhone: person.homePhone,
+    postalCode: person.postalCode,
+    address: person.address,
+    email: person.email,
+    educationLevel: (person.educationLevel as IdentityPerson['educationLevel']) ?? null,
+    citizenGroup: person.citizenGroup,
+    jobId: person.jobId,
+    caseId: extras.caseId,
+    formationStep: extras.formationStep,
+    caseTrackingCode: null,
+  })
+}
+
+type ReviewRow = PortalStewardFormationReview
 
 function ReviewCard({
   title,
@@ -323,7 +359,7 @@ export function CaseStewardshipFormationPage() {
 
   const reached = item?.formationStep ?? 0
   const step = viewStep != null && viewStep <= reached ? viewStep : reached
-  const identity = person ?? (item ? fillPerson({ ...item.person, caseId: item.caseId, formationStep: item.formationStep, caseTrackingCode: null }) : null)
+  const identity = person ?? (item ? toIdentityPerson(item.person, { caseId: item.caseId, formationStep: item.formationStep }) : null)
 
   const documentTypes: DocumentTypeRow[] = useMemo(
     () =>
@@ -343,11 +379,12 @@ export function CaseStewardshipFormationPage() {
   )
 
   useEffect(() => {
-    const first = item?.requirements[0]?.id ?? ''
+    if (!item) return
+    const first = item.requirements[0]?.id ?? ''
     if (!first) return
     if (item.requirements.some((row) => row.id === activeDoc)) return
     setActiveDoc(first)
-  }, [activeDoc, item?.requirements])
+  }, [activeDoc, item])
 
   const backTo = `/cases/${caseId}`
   const nextStepKey = STEWARDSHIP_STEPS[step + 1]
@@ -581,7 +618,7 @@ export function CaseStewardshipFormationPage() {
                 locked={!item.editable}
                 onChange={(key, value) =>
                   setPerson((current) => {
-                    const base = current ?? fillPerson({ ...item.person, caseId: item.caseId, formationStep: item.formationStep, caseTrackingCode: null })
+                    const base = current ?? toIdentityPerson(item.person, { caseId: item.caseId, formationStep: item.formationStep })
                     return { ...base, [key]: value }
                   })
                 }

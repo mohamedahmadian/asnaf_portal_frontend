@@ -49,7 +49,7 @@ import { formatNumber, localizeDigits } from '../../../frontend/src/lib/datetime
 import { PortalLetterButtons, PortalLettersToolbar } from '../components/PortalLetters'
 import { getApiErrorMessage, portalApi } from '../lib/api'
 import type { Lookup, PortalLocationState, PortalRenewalReview } from '../types/portal'
-import type { City, CommercialComplex } from '../../../frontend/src/types/app'
+import type { City } from '../../../frontend/src/types/app'
 
 const LOCATION_STEPS = ['location', 'documents', 'inquiries', 'places', 'management', 'request'] as const
 type LocationStep = (typeof LOCATION_STEPS)[number]
@@ -393,7 +393,8 @@ export function PortalLocationChangePage() {
   }, [item?.location])
 
   useEffect(() => {
-    const first = item?.requirements[0]?.id ?? ''
+    if (!item) return
+    const first = item.requirements[0]?.id ?? ''
     if (!first) return
     if (item.requirements.some((row) => row.id === activeDoc)) return
     setActiveDoc(first)
@@ -403,9 +404,7 @@ export function PortalLocationChangePage() {
   const complexes = (complexesQuery.data ?? []).map((row) => ({
     id: row.id,
     name: row.name ?? row.title ?? '',
-    nameEn: null,
-    address: null,
-  })) as CommercialComplex[]
+  }))
 
   function nextProcessStep(from: number) {
     let next = from + 1

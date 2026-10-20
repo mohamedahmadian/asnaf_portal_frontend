@@ -394,7 +394,8 @@ export function PortalRenewalPage() {
   )
 
   useEffect(() => {
-    const first = item?.requirements[0]?.id ?? ''
+    if (!item) return
+    const first = item.requirements[0]?.id ?? ''
     if (!first) return
     if (item.requirements.some((row) => row.id === activeDoc)) return
     setActiveDoc(first)
