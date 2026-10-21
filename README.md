@@ -17,8 +17,10 @@ Independent React/Vite client for the public economic actor portal.
 Copy `.env.example` to `.env.local` to override local API or token settings.
 The API base URL should include `/api/user/v1`.
 
-Vite uses `../frontend/public` as its static asset source so the portal shares
-the administration client's `head3.png` and brand assets after both portal
-projects were moved into this repository.
+Shared admin UI (dates, forms, license sheet) lives in
+`vendor/asnaf-frontend` so the portal can run without a sibling `frontend`
+folder. On a monorepo checkout Vite still prefers `../frontend` when it
+exists. Refresh the vendor copy with `npm run sync:asnaf` after admin UI
+changes. Set `ASNAF_FRONTEND_DIR` to override the source path.
 
 Use `npm run lint` and `npm run build` for non-server verification.

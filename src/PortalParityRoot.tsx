@@ -126,20 +126,20 @@ import {
   useSearchParams,
 } from 'react-router-dom'
 import { Toaster, toast } from 'sonner'
-import { DateText } from '../../frontend/src/components/ui/DateText'
-import { PersianDateField } from '../../frontend/src/components/ui/PersianDateField'
-import { parseDigitString, toLatinDigits } from '../../frontend/src/lib/datetime'
-import { optimizeImageFile } from '../../frontend/src/lib/optimize-image'
-import { isValidIranianNationalId, normalizeNationalId } from '../../frontend/src/lib/national-id'
-import { IssuedActivityLicense } from '../../frontend/src/pages/cases/IssuedActivityLicense'
+import { DateText } from '@asnaf/components/ui/DateText'
+import { PersianDateField } from '@asnaf/components/ui/PersianDateField'
+import { parseDigitString, toLatinDigits } from '@asnaf/lib/datetime'
+import { optimizeImageFile } from '@asnaf/lib/optimize-image'
+import { isValidIranianNationalId, normalizeNationalId } from '@asnaf/lib/national-id'
+import { IssuedActivityLicense } from '@asnaf/pages/cases/IssuedActivityLicense'
 import {
   PREMISE_ESTABLISHMENTS,
   PREMISE_GEO_POSITIONS,
   PREMISE_OWNERSHIPS,
   PREMISE_PUBLIC_ACCESSES,
   PREVIOUS_OCCUPATIONS,
-} from '../../frontend/src/pages/cases/formation-types'
-import type { ActivityLicense } from '../../frontend/src/pages/cases/activity-license'
+} from '@asnaf/pages/cases/formation-types'
+import type { ActivityLicense } from '@asnaf/pages/cases/activity-license'
 import { clearPortalToken, getPortalToken, setPortalToken } from './lib/auth-token'
 import { HeaderToday } from './HeaderToday'
 import { getApiErrorMessage, portalApi } from './lib/api'

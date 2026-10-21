@@ -2,16 +2,16 @@ import { Download, Printer } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { Button } from '../../../frontend/src/components/ui/Form'
-import { confirmToast } from '../../../frontend/src/components/ui/confirmToast'
+import { Button } from '@asnaf/components/ui/Form'
+import { confirmToast } from '@asnaf/components/ui/confirmToast'
 import {
   downloadInquiryLetter,
   downloadInquiryLetters,
   inquiryLetterFilename,
   printInquiryLetter,
   printInquiryLetters,
-} from '../../../frontend/src/pages/cases/inquiry-letter-print'
-import type { CaseInquiryLetter } from '../../../frontend/src/pages/cases/inquiry-types'
+} from '@asnaf/pages/cases/inquiry-letter-print'
+import type { CaseInquiryLetter } from '@asnaf/pages/cases/inquiry-types'
 import { getApiErrorMessage, portalApi } from '../lib/api'
 
 const letterButtonClassName =

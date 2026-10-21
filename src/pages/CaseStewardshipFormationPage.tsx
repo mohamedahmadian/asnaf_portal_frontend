@@ -25,9 +25,9 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
-import { DateText } from '../../../frontend/src/components/ui/DateText'
-import { FileDropField } from '../../../frontend/src/components/ui/FileDropField'
-import { Button, FormField, caseShellClassName } from '../../../frontend/src/components/ui/Form'
+import { DateText } from '@asnaf/components/ui/DateText'
+import { FileDropField } from '@asnaf/components/ui/FileDropField'
+import { Button, FormField, caseShellClassName } from '@asnaf/components/ui/Form'
 import {
   FormCard,
   FormCardHeader,
@@ -35,10 +35,10 @@ import {
   FormFactTile,
   cardClassName,
   formCardBodyClassName,
-} from '../../../frontend/src/components/ui/FormLayout'
-import { LoadingState } from '../../../frontend/src/components/ui/LoadingState'
-import { InquiryElapsedBadge } from '../../../frontend/src/pages/cases/InquiryDateBadges'
-import { CaseIdentityFields } from '../../../frontend/src/pages/cases/CaseIdentityFields'
+} from '@asnaf/components/ui/FormLayout'
+import { LoadingState } from '@asnaf/components/ui/LoadingState'
+import { InquiryElapsedBadge } from '@asnaf/pages/cases/InquiryDateBadges'
+import { CaseIdentityFields } from '@asnaf/pages/cases/CaseIdentityFields'
 import {
   STEWARDSHIP_ISSUANCE_STEP,
   STEWARDSHIP_STEPS,
@@ -46,9 +46,9 @@ import {
   matchesDocumentGender,
   type DocumentTypeRow,
   type IdentityPerson,
-} from '../../../frontend/src/pages/cases/formation-types'
-import { optimizeImageFile } from '../../../frontend/src/lib/optimize-image'
-import { formatNumber } from '../../../frontend/src/lib/datetime'
+} from '@asnaf/pages/cases/formation-types'
+import { optimizeImageFile } from '@asnaf/lib/optimize-image'
+import { formatNumber } from '@asnaf/lib/datetime'
 import { PortalLetterButtons, PortalLettersToolbar } from '../components/PortalLetters'
 import { getApiErrorMessage, portalApi } from '../lib/api'
 import type { PortalStewardFormationReview, PortalStewardFormationState } from '../types/portal'

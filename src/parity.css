@@ -1,21 +1,21 @@
 @import "tailwindcss";
 
-@source "../../frontend/src/pages/cases/ActivityLicenseSheet.tsx";
-@source "../../frontend/src/pages/cases/IssuedActivityLicense.tsx";
-@source "../../frontend/src/pages/cases/activity-license.ts";
-@source "../../frontend/src/pages/cases/activity-license-styles.ts";
-@source "../../frontend/src/pages/cases/AuctionWizard.tsx";
-@source "../../frontend/src/pages/cases/auction.ts";
-@source "../../frontend/src/components/ui/AmountInput.tsx";
-@source "../../frontend/src/components/ui/Form.tsx";
-@source "../../frontend/src/components/ui/FormLayout.tsx";
-@source "../../frontend/src/components/ui/DateText.tsx";
-@source "../../frontend/src/components/ui/PersianDateField.tsx";
-@source "../../frontend/src/components/ui/FileDropField.tsx";
+@source "../vendor/asnaf-frontend/src/pages/cases/ActivityLicenseSheet.tsx";
+@source "../vendor/asnaf-frontend/src/pages/cases/IssuedActivityLicense.tsx";
+@source "../vendor/asnaf-frontend/src/pages/cases/activity-license.ts";
+@source "../vendor/asnaf-frontend/src/pages/cases/activity-license-styles.ts";
+@source "../vendor/asnaf-frontend/src/pages/cases/AuctionWizard.tsx";
+@source "../vendor/asnaf-frontend/src/pages/cases/auction.ts";
+@source "../vendor/asnaf-frontend/src/components/ui/AmountInput.tsx";
+@source "../vendor/asnaf-frontend/src/components/ui/Form.tsx";
+@source "../vendor/asnaf-frontend/src/components/ui/FormLayout.tsx";
+@source "../vendor/asnaf-frontend/src/components/ui/DateText.tsx";
+@source "../vendor/asnaf-frontend/src/components/ui/PersianDateField.tsx";
+@source "../vendor/asnaf-frontend/src/components/ui/FileDropField.tsx";
 @source "./pages/CaseAuctionPages.tsx";
 @source "./pages/CaseRenewalPage.tsx";
 @source "./pages/CaseLocationChangePage.tsx";
-@source "../../frontend/src/pages/cases/CaseLocationStep.tsx";
+@source "../vendor/asnaf-frontend/src/pages/cases/CaseLocationStep.tsx";
 
 @theme {
   --font-sans: "Vazirmatn", ui-sans-serif, system-ui, sans-serif;

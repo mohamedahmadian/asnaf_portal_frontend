@@ -24,9 +24,9 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
-import { DateText } from '../../../frontend/src/components/ui/DateText'
-import { FileDropField } from '../../../frontend/src/components/ui/FileDropField'
-import { Button, FormField, caseShellClassName, inputClassName } from '../../../frontend/src/components/ui/Form'
+import { DateText } from '@asnaf/components/ui/DateText'
+import { FileDropField } from '@asnaf/components/ui/FileDropField'
+import { Button, FormField, caseShellClassName, inputClassName } from '@asnaf/components/ui/Form'
 import {
   FormCard,
   FormCardHeader,
@@ -35,21 +35,21 @@ import {
   FormSectionTitle,
   cardClassName,
   formCardBodyClassName,
-} from '../../../frontend/src/components/ui/FormLayout'
-import { LoadingState } from '../../../frontend/src/components/ui/LoadingState'
-import { CaseLocationStep } from '../../../frontend/src/pages/cases/CaseLocationStep'
-import { AuctionCaseSubtitle, AuctionStepRing } from '../../../frontend/src/pages/cases/AuctionWizard'
-import { InquiryElapsedBadge } from '../../../frontend/src/pages/cases/InquiryDateBadges'
+} from '@asnaf/components/ui/FormLayout'
+import { LoadingState } from '@asnaf/components/ui/LoadingState'
+import { CaseLocationStep } from '@asnaf/pages/cases/CaseLocationStep'
+import { AuctionCaseSubtitle, AuctionStepRing } from '@asnaf/pages/cases/AuctionWizard'
+import { InquiryElapsedBadge } from '@asnaf/pages/cases/InquiryDateBadges'
 import {
   emptyLocationForm,
   type LocationForm,
-} from '../../../frontend/src/pages/cases/formation-types'
-import { optimizeImageFile } from '../../../frontend/src/lib/optimize-image'
-import { formatNumber, localizeDigits } from '../../../frontend/src/lib/datetime'
+} from '@asnaf/pages/cases/formation-types'
+import { optimizeImageFile } from '@asnaf/lib/optimize-image'
+import { formatNumber, localizeDigits } from '@asnaf/lib/datetime'
 import { PortalLetterButtons, PortalLettersToolbar } from '../components/PortalLetters'
 import { getApiErrorMessage, portalApi } from '../lib/api'
 import type { Lookup, PortalLocationState, PortalRenewalReview } from '../types/portal'
-import type { City } from '../../../frontend/src/types/app'
+import type { City } from '@asnaf/types/app'
 
 const LOCATION_STEPS = ['location', 'documents', 'inquiries', 'places', 'management', 'request'] as const
 type LocationStep = (typeof LOCATION_STEPS)[number]

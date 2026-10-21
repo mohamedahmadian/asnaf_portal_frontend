@@ -28,15 +28,15 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'rea
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
-import { AmountInput } from '../../../frontend/src/components/ui/AmountInput'
-import { DateText } from '../../../frontend/src/components/ui/DateText'
+import { AmountInput } from '@asnaf/components/ui/AmountInput'
+import { DateText } from '@asnaf/components/ui/DateText'
 import {
   AppForm,
   Button,
   FormField,
   caseShellClassName,
   fieldClassName,
-} from '../../../frontend/src/components/ui/Form'
+} from '@asnaf/components/ui/Form'
 import {
   FormCard,
   FormCardHeader,
@@ -44,19 +44,19 @@ import {
   FormSectionTitle,
   cardClassName,
   formCardBodyClassName,
-} from '../../../frontend/src/components/ui/FormLayout'
-import { LoadingState } from '../../../frontend/src/components/ui/LoadingState'
-import { PersianDateField } from '../../../frontend/src/components/ui/PersianDateField'
-import { AuctionCaseSubtitle, AuctionStepRing, AuctionWizardNav } from '../../../frontend/src/pages/cases/AuctionWizard'
-import { InquiryElapsedBadge } from '../../../frontend/src/pages/cases/InquiryDateBadges'
+} from '@asnaf/components/ui/FormLayout'
+import { LoadingState } from '@asnaf/components/ui/LoadingState'
+import { PersianDateField } from '@asnaf/components/ui/PersianDateField'
+import { AuctionCaseSubtitle, AuctionStepRing, AuctionWizardNav } from '@asnaf/pages/cases/AuctionWizard'
+import { InquiryElapsedBadge } from '@asnaf/pages/cases/InquiryDateBadges'
 import {
   AUCTION_WIZARD_STEPS,
   auctionWizardFinished,
   auctionWizardReached,
   priceAfterDiscount,
   type AuctionWizardStep,
-} from '../../../frontend/src/pages/cases/auction'
-import { formatGroupedNumber, formatNumber, localizeDigits, parseGroupedAmount, toLatinDigits } from '../../../frontend/src/lib/datetime'
+} from '@asnaf/pages/cases/auction'
+import { formatGroupedNumber, formatNumber, localizeDigits, parseGroupedAmount, toLatinDigits } from '@asnaf/lib/datetime'
 import { PortalLetterButtons, PortalLettersToolbar } from '../components/PortalLetters'
 import { getApiErrorMessage, portalApi } from '../lib/api'
 import type { CaseDetail, PortalRenewalReview } from '../types/portal'
